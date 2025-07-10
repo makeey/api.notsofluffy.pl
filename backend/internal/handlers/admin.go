@@ -22,6 +22,8 @@ type AdminHandler struct {
 	userQueries     *database.UserQueries
 	imageQueries    *database.ImageQueries
 	categoryQueries *database.CategoryQueries
+	materialQueries *database.MaterialQueries
+	colorQueries    *database.ColorQueries
 }
 
 func NewAdminHandler(db *sql.DB) *AdminHandler {
@@ -29,6 +31,8 @@ func NewAdminHandler(db *sql.DB) *AdminHandler {
 		userQueries:     database.NewUserQueries(db),
 		imageQueries:    database.NewImageQueries(db),
 		categoryQueries: database.NewCategoryQueries(db),
+		materialQueries: database.NewMaterialQueries(db),
+		colorQueries:    database.NewColorQueries(db),
 	}
 }
 
@@ -508,6 +512,388 @@ func (h *AdminHandler) ToggleCategoryActive(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Category status toggled successfully"})
+}
+
+// Material Management
+
+func (h *AdminHandler) ListMaterials(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	search := c.Query("search")
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	materials, total, err := h.materialQueries.ListMaterials(page, limit, search)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve materials"})
+		return
+	}
+
+	// Convert to response format
+	materialResponses := make([]models.MaterialResponse, len(materials))
+	for i, mat := range materials {
+		materialResponses[i] = models.MaterialResponse{
+			ID:        mat.ID,
+			Name:      mat.Name,
+			CreatedAt: mat.CreatedAt.Format(time.RFC3339),
+			UpdatedAt: mat.UpdatedAt.Format(time.RFC3339),
+		}
+	}
+
+	response := models.MaterialListResponse{
+		Materials: materialResponses,
+		Total:     total,
+		Page:      page,
+		Limit:     limit,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) CreateMaterial(c *gin.Context) {
+	var req models.MaterialRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if name already exists
+	exists, err := h.materialQueries.NameExists(req.Name, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check material name"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusConflict, gin.H{"error": "Material name already exists"})
+		return
+	}
+
+	material := &models.Material{
+		Name: req.Name,
+	}
+
+	err = h.materialQueries.CreateMaterial(material)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create material"})
+		return
+	}
+
+	response := models.MaterialResponse{
+		ID:        material.ID,
+		Name:      material.Name,
+		CreatedAt: material.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: material.UpdatedAt.Format(time.RFC3339),
+	}
+
+	c.JSON(http.StatusCreated, response)
+}
+
+func (h *AdminHandler) GetMaterial(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid material ID"})
+		return
+	}
+
+	material, err := h.materialQueries.GetMaterialByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Material not found"})
+		return
+	}
+
+	response := models.MaterialResponse{
+		ID:        material.ID,
+		Name:      material.Name,
+		CreatedAt: material.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: material.UpdatedAt.Format(time.RFC3339),
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) UpdateMaterial(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid material ID"})
+		return
+	}
+
+	var req models.MaterialRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if name already exists (excluding current material)
+	exists, err := h.materialQueries.NameExists(req.Name, &id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check material name"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusConflict, gin.H{"error": "Material name already exists"})
+		return
+	}
+
+	material, err := h.materialQueries.UpdateMaterial(id, req.Name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update material"})
+		return
+	}
+
+	response := models.MaterialResponse{
+		ID:        material.ID,
+		Name:      material.Name,
+		CreatedAt: material.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: material.UpdatedAt.Format(time.RFC3339),
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) DeleteMaterial(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid material ID"})
+		return
+	}
+
+	err = h.materialQueries.DeleteMaterial(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete material"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Material deleted successfully"})
+}
+
+// Color Management
+
+func (h *AdminHandler) ListColors(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	search := c.Query("search")
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	// Parse filter parameters
+	var materialID *int
+	var customOnly *bool
+
+	if materialParam := c.Query("material_id"); materialParam != "" {
+		if matID, err := strconv.Atoi(materialParam); err == nil {
+			materialID = &matID
+		}
+	}
+
+	if customParam := c.Query("custom"); customParam != "" {
+		custom := customParam == "true"
+		customOnly = &custom
+	}
+
+	colors, total, err := h.colorQueries.ListColors(page, limit, search, materialID, customOnly)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve colors"})
+		return
+	}
+
+	// Convert to response format
+	colorResponses := make([]models.ColorResponse, len(colors))
+	for i, color := range colors {
+		colorResponses[i] = models.ColorResponse{
+			ID:         color.ID,
+			Name:       color.Name,
+			ImageID:    color.ImageID,
+			Custom:     color.Custom,
+			MaterialID: color.MaterialID,
+			CreatedAt:  color.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:  color.UpdatedAt.Format(time.RFC3339),
+			Image:      color.Image,
+			Material:   color.Material,
+		}
+	}
+
+	response := models.ColorListResponse{
+		Colors: colorResponses,
+		Total:  total,
+		Page:   page,
+		Limit:  limit,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) CreateColor(c *gin.Context) {
+	var req models.ColorRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate material exists
+	_, err := h.materialQueries.GetMaterialByID(req.MaterialID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid material ID"})
+		return
+	}
+
+	// Validate image ID if provided
+	if req.ImageID != nil {
+		_, err := h.imageQueries.GetImageByID(*req.ImageID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid image ID"})
+			return
+		}
+	}
+
+	// Check if name already exists for this material
+	exists, err := h.colorQueries.NameExistsForMaterial(req.Name, req.MaterialID, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check color name"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusConflict, gin.H{"error": "Color name already exists for this material"})
+		return
+	}
+
+	color := &models.Color{
+		Name:       req.Name,
+		ImageID:    req.ImageID,
+		Custom:     req.Custom,
+		MaterialID: req.MaterialID,
+	}
+
+	err = h.colorQueries.CreateColor(color)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create color"})
+		return
+	}
+
+	response := models.ColorResponse{
+		ID:         color.ID,
+		Name:       color.Name,
+		ImageID:    color.ImageID,
+		Custom:     color.Custom,
+		MaterialID: color.MaterialID,
+		CreatedAt:  color.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:  color.UpdatedAt.Format(time.RFC3339),
+	}
+
+	c.JSON(http.StatusCreated, response)
+}
+
+func (h *AdminHandler) GetColor(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid color ID"})
+		return
+	}
+
+	color, err := h.colorQueries.GetColorByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Color not found"})
+		return
+	}
+
+	response := models.ColorResponse{
+		ID:         color.ID,
+		Name:       color.Name,
+		ImageID:    color.ImageID,
+		Custom:     color.Custom,
+		MaterialID: color.MaterialID,
+		CreatedAt:  color.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:  color.UpdatedAt.Format(time.RFC3339),
+		Image:      color.Image,
+		Material:   color.Material,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) UpdateColor(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid color ID"})
+		return
+	}
+
+	var req models.ColorRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate material exists
+	_, err = h.materialQueries.GetMaterialByID(req.MaterialID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid material ID"})
+		return
+	}
+
+	// Validate image ID if provided
+	if req.ImageID != nil {
+		_, err := h.imageQueries.GetImageByID(*req.ImageID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid image ID"})
+			return
+		}
+	}
+
+	// Check if name already exists for this material (excluding current color)
+	exists, err := h.colorQueries.NameExistsForMaterial(req.Name, req.MaterialID, &id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check color name"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusConflict, gin.H{"error": "Color name already exists for this material"})
+		return
+	}
+
+	color, err := h.colorQueries.UpdateColor(id, req.Name, req.ImageID, req.Custom, req.MaterialID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update color"})
+		return
+	}
+
+	response := models.ColorResponse{
+		ID:         color.ID,
+		Name:       color.Name,
+		ImageID:    color.ImageID,
+		Custom:     color.Custom,
+		MaterialID: color.MaterialID,
+		CreatedAt:  color.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:  color.UpdatedAt.Format(time.RFC3339),
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) DeleteColor(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid color ID"})
+		return
+	}
+
+	err = h.colorQueries.DeleteColor(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete color"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Color deleted successfully"})
 }
 
 // Helper functions

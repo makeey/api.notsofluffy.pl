@@ -67,6 +67,36 @@ func Migrate(db *sql.DB) error {
 		BEFORE UPDATE ON categories
 		FOR EACH ROW
 		EXECUTE FUNCTION update_updated_at_column();`,
+		`CREATE TABLE IF NOT EXISTS materials (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(256) NOT NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_materials_name ON materials(name);`,
+		`DROP TRIGGER IF EXISTS update_materials_updated_at ON materials;`,
+		`CREATE TRIGGER update_materials_updated_at
+		BEFORE UPDATE ON materials
+		FOR EACH ROW
+		EXECUTE FUNCTION update_updated_at_column();`,
+		`CREATE TABLE IF NOT EXISTS colors (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(256) NOT NULL,
+			image_id INTEGER REFERENCES images(id) ON DELETE SET NULL,
+			custom BOOLEAN NOT NULL DEFAULT false,
+			material_id INTEGER NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_colors_name ON colors(name);`,
+		`CREATE INDEX IF NOT EXISTS idx_colors_material_id ON colors(material_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_colors_custom ON colors(custom);`,
+		`CREATE INDEX IF NOT EXISTS idx_colors_image_id ON colors(image_id);`,
+		`DROP TRIGGER IF EXISTS update_colors_updated_at ON colors;`,
+		`CREATE TRIGGER update_colors_updated_at
+		BEFORE UPDATE ON colors
+		FOR EACH ROW
+		EXECUTE FUNCTION update_updated_at_column();`,
 	}
 
 	for i, migration := range migrations {

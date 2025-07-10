@@ -669,3 +669,500 @@ func (q *CategoryQueries) ToggleActive(id int) error {
 	
 	return nil
 }
+
+// Material Queries
+
+type MaterialQueries struct {
+	db *sql.DB
+}
+
+func NewMaterialQueries(db *sql.DB) *MaterialQueries {
+	return &MaterialQueries{db: db}
+}
+
+func (q *MaterialQueries) CreateMaterial(material *models.Material) error {
+	query := `
+		INSERT INTO materials (name)
+		VALUES ($1)
+		RETURNING id, created_at, updated_at
+	`
+	err := q.db.QueryRow(query, material.Name).Scan(
+		&material.ID,
+		&material.CreatedAt,
+		&material.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create material: %w", err)
+	}
+	return nil
+}
+
+func (q *MaterialQueries) GetMaterialByID(id int) (*models.Material, error) {
+	query := `
+		SELECT id, name, created_at, updated_at
+		FROM materials
+		WHERE id = $1
+	`
+	material := &models.Material{}
+	err := q.db.QueryRow(query, id).Scan(
+		&material.ID,
+		&material.Name,
+		&material.CreatedAt,
+		&material.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("material not found")
+		}
+		return nil, fmt.Errorf("failed to get material: %w", err)
+	}
+	return material, nil
+}
+
+func (q *MaterialQueries) ListMaterials(page, limit int, search string) ([]models.Material, int, error) {
+	offset := (page - 1) * limit
+	var materials []models.Material
+	var total int
+
+	// Build WHERE clause
+	whereClause := ""
+	args := []interface{}{}
+	argIndex := 1
+
+	if search != "" {
+		whereClause = "WHERE name ILIKE $1"
+		args = append(args, "%"+search+"%")
+		argIndex++
+	}
+
+	// Count total materials
+	countQuery := `SELECT COUNT(*) FROM materials ` + whereClause
+	err := q.db.QueryRow(countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count materials: %w", err)
+	}
+
+	// Get materials
+	query := `
+		SELECT id, name, created_at, updated_at
+		FROM materials
+		` + whereClause + `
+		ORDER BY name ASC
+		LIMIT $` + fmt.Sprintf("%d", argIndex) + ` OFFSET $` + fmt.Sprintf("%d", argIndex+1)
+	
+	args = append(args, limit, offset)
+	
+	rows, err := q.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list materials: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var material models.Material
+		err := rows.Scan(
+			&material.ID,
+			&material.Name,
+			&material.CreatedAt,
+			&material.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan material: %w", err)
+		}
+		materials = append(materials, material)
+	}
+
+	return materials, total, nil
+}
+
+func (q *MaterialQueries) UpdateMaterial(id int, name string) (*models.Material, error) {
+	material := &models.Material{
+		ID:   id,
+		Name: name,
+	}
+
+	query := `
+		UPDATE materials
+		SET name = $1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $2
+		RETURNING created_at, updated_at
+	`
+	err := q.db.QueryRow(query, name, id).Scan(
+		&material.CreatedAt,
+		&material.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update material: %w", err)
+	}
+
+	return material, nil
+}
+
+func (q *MaterialQueries) DeleteMaterial(id int) error {
+	query := `DELETE FROM materials WHERE id = $1`
+	result, err := q.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete material: %w", err)
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rowsAffected == 0 {
+		return fmt.Errorf("material not found")
+	}
+	
+	return nil
+}
+
+func (q *MaterialQueries) NameExists(name string, excludeID *int) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM materials WHERE name = $1`
+	args := []interface{}{name}
+	
+	if excludeID != nil {
+		query += ` AND id != $2`
+		args = append(args, *excludeID)
+	}
+	
+	query += `)`
+	
+	var exists bool
+	err := q.db.QueryRow(query, args...).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check material name existence: %w", err)
+	}
+	return exists, nil
+}
+
+// Color Queries
+
+type ColorQueries struct {
+	db *sql.DB
+}
+
+func NewColorQueries(db *sql.DB) *ColorQueries {
+	return &ColorQueries{db: db}
+}
+
+func (q *ColorQueries) CreateColor(color *models.Color) error {
+	query := `
+		INSERT INTO colors (name, image_id, custom, material_id)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, created_at, updated_at
+	`
+	err := q.db.QueryRow(query, 
+		color.Name, 
+		color.ImageID, 
+		color.Custom, 
+		color.MaterialID,
+	).Scan(
+		&color.ID,
+		&color.CreatedAt,
+		&color.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create color: %w", err)
+	}
+	return nil
+}
+
+func (q *ColorQueries) GetColorByID(id int) (*models.ColorWithRelations, error) {
+	query := `
+		SELECT 
+			c.id, c.name, c.image_id, c.custom, c.material_id, c.created_at, c.updated_at,
+			i.id, i.filename, i.original_name, i.path, i.size_bytes, i.mime_type, i.uploaded_by, i.created_at, i.updated_at,
+			m.id, m.name, m.created_at, m.updated_at
+		FROM colors c
+		LEFT JOIN images i ON c.image_id = i.id
+		INNER JOIN materials m ON c.material_id = m.id
+		WHERE c.id = $1
+	`
+	color := &models.ColorWithRelations{}
+	var image models.Image
+	var material models.Material
+	var imageCreatedAt, imageUpdatedAt sql.NullTime
+	var imageID, imageSizeBytes, imageUploadedBy sql.NullInt64
+	var imageFilename, imageOriginalName, imagePath, imageMimeType sql.NullString
+	
+	err := q.db.QueryRow(query, id).Scan(
+		&color.ID,
+		&color.Name,
+		&color.ImageID,
+		&color.Custom,
+		&color.MaterialID,
+		&color.CreatedAt,
+		&color.UpdatedAt,
+		&imageID,
+		&imageFilename,
+		&imageOriginalName,
+		&imagePath,
+		&imageSizeBytes,
+		&imageMimeType,
+		&imageUploadedBy,
+		&imageCreatedAt,
+		&imageUpdatedAt,
+		&material.ID,
+		&material.Name,
+		&material.CreatedAt,
+		&material.UpdatedAt,
+	)
+	
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("color not found")
+		}
+		return nil, fmt.Errorf("failed to get color: %w", err)
+	}
+	
+	// Add material
+	color.Material = &models.MaterialResponse{
+		ID:        material.ID,
+		Name:      material.Name,
+		CreatedAt: material.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: material.UpdatedAt.Format(time.RFC3339),
+	}
+	
+	// Add image if it exists
+	if color.ImageID != nil && imageID.Valid {
+		image.ID = int(imageID.Int64)
+		image.Filename = imageFilename.String
+		image.OriginalName = imageOriginalName.String
+		image.Path = imagePath.String
+		image.SizeBytes = imageSizeBytes.Int64
+		image.MimeType = imageMimeType.String
+		image.UploadedBy = int(imageUploadedBy.Int64)
+		
+		if imageCreatedAt.Valid {
+			image.CreatedAt = imageCreatedAt.Time
+		}
+		if imageUpdatedAt.Valid {
+			image.UpdatedAt = imageUpdatedAt.Time
+		}
+		
+		color.Image = &models.ImageResponse{
+			ID:           image.ID,
+			Filename:     image.Filename,
+			OriginalName: image.OriginalName,
+			Path:         image.Path,
+			SizeBytes:    image.SizeBytes,
+			MimeType:     image.MimeType,
+			UploadedBy:   image.UploadedBy,
+			CreatedAt:    image.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:    image.UpdatedAt.Format(time.RFC3339),
+		}
+	}
+	
+	return color, nil
+}
+
+func (q *ColorQueries) ListColors(page, limit int, search string, materialID *int, customOnly *bool) ([]models.ColorWithRelations, int, error) {
+	offset := (page - 1) * limit
+	var colors []models.ColorWithRelations
+	var total int
+
+	// Build WHERE clause
+	whereConditions := []string{}
+	args := []interface{}{}
+	argIndex := 1
+
+	if search != "" {
+		whereConditions = append(whereConditions, fmt.Sprintf("c.name ILIKE $%d", argIndex))
+		args = append(args, "%"+search+"%")
+		argIndex++
+	}
+
+	if materialID != nil {
+		whereConditions = append(whereConditions, fmt.Sprintf("c.material_id = $%d", argIndex))
+		args = append(args, *materialID)
+		argIndex++
+	}
+
+	if customOnly != nil {
+		whereConditions = append(whereConditions, fmt.Sprintf("c.custom = $%d", argIndex))
+		args = append(args, *customOnly)
+		argIndex++
+	}
+
+	whereClause := ""
+	if len(whereConditions) > 0 {
+		whereClause = "WHERE " + fmt.Sprintf("(%s)", whereConditions[0])
+		for i := 1; i < len(whereConditions); i++ {
+			whereClause += " AND " + fmt.Sprintf("(%s)", whereConditions[i])
+		}
+	}
+
+	// Count total colors
+	countQuery := `
+		SELECT COUNT(*) 
+		FROM colors c 
+		INNER JOIN materials m ON c.material_id = m.id 
+		` + whereClause
+	err := q.db.QueryRow(countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count colors: %w", err)
+	}
+
+	// Get colors with relations
+	query := `
+		SELECT 
+			c.id, c.name, c.image_id, c.custom, c.material_id, c.created_at, c.updated_at,
+			i.id, i.filename, i.original_name, i.path, i.size_bytes, i.mime_type, i.uploaded_by, i.created_at, i.updated_at,
+			m.id, m.name, m.created_at, m.updated_at
+		FROM colors c
+		LEFT JOIN images i ON c.image_id = i.id
+		INNER JOIN materials m ON c.material_id = m.id
+		` + whereClause + `
+		ORDER BY c.name ASC
+		LIMIT $` + fmt.Sprintf("%d", argIndex) + ` OFFSET $` + fmt.Sprintf("%d", argIndex+1)
+	
+	args = append(args, limit, offset)
+	
+	rows, err := q.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list colors: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var color models.ColorWithRelations
+		var image models.Image
+		var material models.Material
+		var imageCreatedAt, imageUpdatedAt sql.NullTime
+		var imageID, imageSizeBytes, imageUploadedBy sql.NullInt64
+		var imageFilename, imageOriginalName, imagePath, imageMimeType sql.NullString
+
+		err := rows.Scan(
+			&color.ID,
+			&color.Name,
+			&color.ImageID,
+			&color.Custom,
+			&color.MaterialID,
+			&color.CreatedAt,
+			&color.UpdatedAt,
+			&imageID,
+			&imageFilename,
+			&imageOriginalName,
+			&imagePath,
+			&imageSizeBytes,
+			&imageMimeType,
+			&imageUploadedBy,
+			&imageCreatedAt,
+			&imageUpdatedAt,
+			&material.ID,
+			&material.Name,
+			&material.CreatedAt,
+			&material.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan color: %w", err)
+		}
+
+		// Add material
+		color.Material = &models.MaterialResponse{
+			ID:        material.ID,
+			Name:      material.Name,
+			CreatedAt: material.CreatedAt.Format(time.RFC3339),
+			UpdatedAt: material.UpdatedAt.Format(time.RFC3339),
+		}
+
+		// Add image if it exists
+		if color.ImageID != nil && imageID.Valid {
+			image.ID = int(imageID.Int64)
+			image.Filename = imageFilename.String
+			image.OriginalName = imageOriginalName.String
+			image.Path = imagePath.String
+			image.SizeBytes = imageSizeBytes.Int64
+			image.MimeType = imageMimeType.String
+			image.UploadedBy = int(imageUploadedBy.Int64)
+			
+			if imageCreatedAt.Valid {
+				image.CreatedAt = imageCreatedAt.Time
+			}
+			if imageUpdatedAt.Valid {
+				image.UpdatedAt = imageUpdatedAt.Time
+			}
+			
+			color.Image = &models.ImageResponse{
+				ID:           image.ID,
+				Filename:     image.Filename,
+				OriginalName: image.OriginalName,
+				Path:         image.Path,
+				SizeBytes:    image.SizeBytes,
+				MimeType:     image.MimeType,
+				UploadedBy:   image.UploadedBy,
+				CreatedAt:    image.CreatedAt.Format(time.RFC3339),
+				UpdatedAt:    image.UpdatedAt.Format(time.RFC3339),
+			}
+		}
+
+		colors = append(colors, color)
+	}
+
+	return colors, total, nil
+}
+
+func (q *ColorQueries) UpdateColor(id int, name string, imageID *int, custom bool, materialID int) (*models.Color, error) {
+	color := &models.Color{
+		ID:         id,
+		Name:       name,
+		ImageID:    imageID,
+		Custom:     custom,
+		MaterialID: materialID,
+	}
+
+	query := `
+		UPDATE colors
+		SET name = $1, image_id = $2, custom = $3, material_id = $4, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $5
+		RETURNING created_at, updated_at
+	`
+	err := q.db.QueryRow(query, name, imageID, custom, materialID, id).Scan(
+		&color.CreatedAt,
+		&color.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update color: %w", err)
+	}
+
+	return color, nil
+}
+
+func (q *ColorQueries) DeleteColor(id int) error {
+	query := `DELETE FROM colors WHERE id = $1`
+	result, err := q.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete color: %w", err)
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rowsAffected == 0 {
+		return fmt.Errorf("color not found")
+	}
+	
+	return nil
+}
+
+func (q *ColorQueries) NameExistsForMaterial(name string, materialID int, excludeID *int) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM colors WHERE name = $1 AND material_id = $2`
+	args := []interface{}{name, materialID}
+	
+	if excludeID != nil {
+		query += ` AND id != $3`
+		args = append(args, *excludeID)
+	}
+	
+	query += `)`
+	
+	var exists bool
+	err := q.db.QueryRow(query, args...).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check color name existence for material: %w", err)
+	}
+	return exists, nil
+}

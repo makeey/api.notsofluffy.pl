@@ -138,3 +138,76 @@ type CategoryListResponse struct {
 	Page       int                `json:"page"`
 	Limit      int                `json:"limit"`
 }
+
+type Material struct {
+	ID        int       `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type MaterialRequest struct {
+	Name string `json:"name" binding:"required,min=1,max=256"`
+}
+
+type MaterialResponse struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type MaterialListResponse struct {
+	Materials []MaterialResponse `json:"materials"`
+	Total     int                `json:"total"`
+	Page      int                `json:"page"`
+	Limit     int                `json:"limit"`
+}
+
+type Color struct {
+	ID         int       `json:"id"`
+	Name       string    `json:"name"`
+	ImageID    *int      `json:"image_id"`
+	Custom     bool      `json:"custom"`
+	MaterialID int       `json:"material_id"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type ColorWithRelations struct {
+	ID         int              `json:"id"`
+	Name       string           `json:"name"`
+	ImageID    *int             `json:"image_id"`
+	Custom     bool             `json:"custom"`
+	MaterialID int              `json:"material_id"`
+	CreatedAt  time.Time        `json:"created_at"`
+	UpdatedAt  time.Time        `json:"updated_at"`
+	Image      *ImageResponse   `json:"image,omitempty"`
+	Material   *MaterialResponse `json:"material,omitempty"`
+}
+
+type ColorRequest struct {
+	Name       string `json:"name" binding:"required,min=1,max=256"`
+	ImageID    *int   `json:"image_id"`
+	Custom     bool   `json:"custom"`
+	MaterialID int    `json:"material_id" binding:"required"`
+}
+
+type ColorResponse struct {
+	ID         int              `json:"id"`
+	Name       string           `json:"name"`
+	ImageID    *int             `json:"image_id"`
+	Custom     bool             `json:"custom"`
+	MaterialID int              `json:"material_id"`
+	CreatedAt  string           `json:"created_at"`
+	UpdatedAt  string           `json:"updated_at"`
+	Image      *ImageResponse   `json:"image,omitempty"`
+	Material   *MaterialResponse `json:"material,omitempty"`
+}
+
+type ColorListResponse struct {
+	Colors []ColorResponse `json:"colors"`
+	Total  int             `json:"total"`
+	Page   int             `json:"page"`
+	Limit  int             `json:"limit"`
+}

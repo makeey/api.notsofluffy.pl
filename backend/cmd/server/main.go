@@ -79,6 +79,20 @@ func main() {
 		admin.PUT("/categories/:id", adminHandler.UpdateCategory)
 		admin.DELETE("/categories/:id", adminHandler.DeleteCategory)
 		admin.PATCH("/categories/:id/toggle", adminHandler.ToggleCategoryActive)
+
+		// Material management
+		admin.GET("/materials", adminHandler.ListMaterials)
+		admin.POST("/materials", adminHandler.CreateMaterial)
+		admin.GET("/materials/:id", adminHandler.GetMaterial)
+		admin.PUT("/materials/:id", adminHandler.UpdateMaterial)
+		admin.DELETE("/materials/:id", adminHandler.DeleteMaterial)
+
+		// Color management
+		admin.GET("/colors", adminHandler.ListColors)
+		admin.POST("/colors", adminHandler.CreateColor)
+		admin.GET("/colors/:id", adminHandler.GetColor)
+		admin.PUT("/colors/:id", adminHandler.UpdateColor)
+		admin.DELETE("/colors/:id", adminHandler.DeleteColor)
 	}
 
 	port := os.Getenv("PORT")
