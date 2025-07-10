@@ -48,6 +48,25 @@ func Migrate(db *sql.DB) error {
 		BEFORE UPDATE ON images
 		FOR EACH ROW
 		EXECUTE FUNCTION update_updated_at_column();`,
+		`CREATE TABLE IF NOT EXISTS categories (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(256) NOT NULL,
+			slug VARCHAR(256) UNIQUE NOT NULL,
+			image_id INTEGER REFERENCES images(id) ON DELETE SET NULL,
+			active BOOLEAN NOT NULL DEFAULT true,
+			chart_only BOOLEAN NOT NULL DEFAULT false,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_categories_slug ON categories(slug);`,
+		`CREATE INDEX IF NOT EXISTS idx_categories_active ON categories(active);`,
+		`CREATE INDEX IF NOT EXISTS idx_categories_chart_only ON categories(chart_only);`,
+		`CREATE INDEX IF NOT EXISTS idx_categories_image_id ON categories(image_id);`,
+		`DROP TRIGGER IF EXISTS update_categories_updated_at ON categories;`,
+		`CREATE TRIGGER update_categories_updated_at
+		BEFORE UPDATE ON categories
+		FOR EACH ROW
+		EXECUTE FUNCTION update_updated_at_column();`,
 	}
 
 	for i, migration := range migrations {

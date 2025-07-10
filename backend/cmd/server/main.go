@@ -36,7 +36,7 @@ func main() {
 	// CORS middleware
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000", "http://localhost:3001"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: true,
 	}))
@@ -71,6 +71,14 @@ func main() {
 		admin.POST("/images/upload", adminHandler.UploadImage)
 		admin.GET("/images", adminHandler.ListImages)
 		admin.DELETE("/images/:id", adminHandler.DeleteImage)
+
+		// Category management
+		admin.GET("/categories", adminHandler.ListCategories)
+		admin.POST("/categories", adminHandler.CreateCategory)
+		admin.GET("/categories/:id", adminHandler.GetCategory)
+		admin.PUT("/categories/:id", adminHandler.UpdateCategory)
+		admin.DELETE("/categories/:id", adminHandler.DeleteCategory)
+		admin.PATCH("/categories/:id/toggle", adminHandler.ToggleCategoryActive)
 	}
 
 	port := os.Getenv("PORT")

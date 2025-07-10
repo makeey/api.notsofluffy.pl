@@ -19,14 +19,16 @@ import (
 )
 
 type AdminHandler struct {
-	userQueries  *database.UserQueries
-	imageQueries *database.ImageQueries
+	userQueries     *database.UserQueries
+	imageQueries    *database.ImageQueries
+	categoryQueries *database.CategoryQueries
 }
 
 func NewAdminHandler(db *sql.DB) *AdminHandler {
 	return &AdminHandler{
-		userQueries:  database.NewUserQueries(db),
-		imageQueries: database.NewImageQueries(db),
+		userQueries:     database.NewUserQueries(db),
+		imageQueries:    database.NewImageQueries(db),
+		categoryQueries: database.NewCategoryQueries(db),
 	}
 }
 
@@ -278,6 +280,234 @@ func (h *AdminHandler) DeleteImage(c *gin.Context) {
 	os.Remove(image.Path)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Image deleted successfully"})
+}
+
+// Category Management
+
+func (h *AdminHandler) ListCategories(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	search := c.Query("search")
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	// Parse filter parameters
+	var activeOnly *bool
+	var chartOnly *bool
+
+	if activeParam := c.Query("active"); activeParam != "" {
+		active := activeParam == "true"
+		activeOnly = &active
+	}
+
+	if chartParam := c.Query("chart_only"); chartParam != "" {
+		chart := chartParam == "true"
+		chartOnly = &chart
+	}
+
+	categories, total, err := h.categoryQueries.ListCategories(page, limit, search, activeOnly, chartOnly)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve categories"})
+		return
+	}
+
+	// Convert to response format
+	categoryResponses := make([]models.CategoryResponse, len(categories))
+	for i, cat := range categories {
+		categoryResponses[i] = models.CategoryResponse{
+			ID:        cat.ID,
+			Name:      cat.Name,
+			Slug:      cat.Slug,
+			ImageID:   cat.ImageID,
+			Active:    cat.Active,
+			ChartOnly: cat.ChartOnly,
+			CreatedAt: cat.CreatedAt.Format(time.RFC3339),
+			UpdatedAt: cat.UpdatedAt.Format(time.RFC3339),
+			Image:     cat.Image,
+		}
+	}
+
+	response := models.CategoryListResponse{
+		Categories: categoryResponses,
+		Total:      total,
+		Page:       page,
+		Limit:      limit,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) CreateCategory(c *gin.Context) {
+	var req models.CategoryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if slug already exists
+	exists, err := h.categoryQueries.SlugExists(req.Slug, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check slug"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusConflict, gin.H{"error": "Slug already exists"})
+		return
+	}
+
+	// Validate image ID if provided
+	if req.ImageID != nil {
+		_, err := h.imageQueries.GetImageByID(*req.ImageID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid image ID"})
+			return
+		}
+	}
+
+	category := &models.Category{
+		Name:      req.Name,
+		Slug:      req.Slug,
+		ImageID:   req.ImageID,
+		Active:    req.Active,
+		ChartOnly: req.ChartOnly,
+	}
+
+	err = h.categoryQueries.CreateCategory(category)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create category"})
+		return
+	}
+
+	response := models.CategoryResponse{
+		ID:        category.ID,
+		Name:      category.Name,
+		Slug:      category.Slug,
+		ImageID:   category.ImageID,
+		Active:    category.Active,
+		ChartOnly: category.ChartOnly,
+		CreatedAt: category.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: category.UpdatedAt.Format(time.RFC3339),
+	}
+
+	c.JSON(http.StatusCreated, response)
+}
+
+func (h *AdminHandler) GetCategory(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid category ID"})
+		return
+	}
+
+	category, err := h.categoryQueries.GetCategoryByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Category not found"})
+		return
+	}
+
+	response := models.CategoryResponse{
+		ID:        category.ID,
+		Name:      category.Name,
+		Slug:      category.Slug,
+		ImageID:   category.ImageID,
+		Active:    category.Active,
+		ChartOnly: category.ChartOnly,
+		CreatedAt: category.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: category.UpdatedAt.Format(time.RFC3339),
+		Image:     category.Image,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) UpdateCategory(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid category ID"})
+		return
+	}
+
+	var req models.CategoryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if slug already exists (excluding current category)
+	exists, err := h.categoryQueries.SlugExists(req.Slug, &id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check slug"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusConflict, gin.H{"error": "Slug already exists"})
+		return
+	}
+
+	// Validate image ID if provided
+	if req.ImageID != nil {
+		_, err := h.imageQueries.GetImageByID(*req.ImageID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid image ID"})
+			return
+		}
+	}
+
+	category, err := h.categoryQueries.UpdateCategory(id, req.Name, req.Slug, req.ImageID, req.Active, req.ChartOnly)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update category"})
+		return
+	}
+
+	response := models.CategoryResponse{
+		ID:        category.ID,
+		Name:      category.Name,
+		Slug:      category.Slug,
+		ImageID:   category.ImageID,
+		Active:    category.Active,
+		ChartOnly: category.ChartOnly,
+		CreatedAt: category.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: category.UpdatedAt.Format(time.RFC3339),
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) DeleteCategory(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid category ID"})
+		return
+	}
+
+	err = h.categoryQueries.DeleteCategory(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete category"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Category deleted successfully"})
+}
+
+func (h *AdminHandler) ToggleCategoryActive(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid category ID"})
+		return
+	}
+
+	err = h.categoryQueries.ToggleActive(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to toggle category status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Category status toggled successfully"})
 }
 
 // Helper functions

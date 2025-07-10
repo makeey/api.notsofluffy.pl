@@ -88,3 +88,53 @@ type AdminUserRequest struct {
 	Password string `json:"password,omitempty" binding:"min=6"`
 	Role     string `json:"role" binding:"required,oneof=client admin"`
 }
+
+type Category struct {
+	ID        int       `json:"id"`
+	Name      string    `json:"name"`
+	Slug      string    `json:"slug"`
+	ImageID   *int      `json:"image_id"`
+	Active    bool      `json:"active"`
+	ChartOnly bool      `json:"chart_only"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type CategoryWithImage struct {
+	ID        int            `json:"id"`
+	Name      string         `json:"name"`
+	Slug      string         `json:"slug"`
+	ImageID   *int           `json:"image_id"`
+	Active    bool           `json:"active"`
+	ChartOnly bool           `json:"chart_only"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	Image     *ImageResponse `json:"image,omitempty"`
+}
+
+type CategoryRequest struct {
+	Name      string `json:"name" binding:"required,min=1,max=256"`
+	Slug      string `json:"slug" binding:"required,min=1,max=256"`
+	ImageID   *int   `json:"image_id"`
+	Active    bool   `json:"active"`
+	ChartOnly bool   `json:"chart_only"`
+}
+
+type CategoryResponse struct {
+	ID        int            `json:"id"`
+	Name      string         `json:"name"`
+	Slug      string         `json:"slug"`
+	ImageID   *int           `json:"image_id"`
+	Active    bool           `json:"active"`
+	ChartOnly bool           `json:"chart_only"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
+	Image     *ImageResponse `json:"image,omitempty"`
+}
+
+type CategoryListResponse struct {
+	Categories []CategoryResponse `json:"categories"`
+	Total      int                `json:"total"`
+	Page       int                `json:"page"`
+	Limit      int                `json:"limit"`
+}
