@@ -26,6 +26,11 @@ func main() {
 		log.Fatal("Failed to run migrations:", err)
 	}
 
+	// Ensure uploads directory exists
+	if err := os.MkdirAll("uploads/images", 0755); err != nil {
+		log.Fatal("Failed to create uploads directory:", err)
+	}
+
 	r := gin.Default()
 
 	// CORS middleware
@@ -35,6 +40,9 @@ func main() {
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: true,
 	}))
+
+	// Static file serving for uploads
+	r.Static("/uploads", "./uploads")
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(db, cfg.JWTSecret)
