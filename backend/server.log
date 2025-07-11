@@ -1,0 +1,63 @@
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /uploads/*filepath        --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (4 handlers)
+[GIN-debug] HEAD   /uploads/*filepath        --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (4 handlers)
+[GIN-debug] GET    /api/categories           --> notsofluffy-backend/internal/handlers.(*PublicHandler).GetActiveCategories-fm (4 handlers)
+[GIN-debug] GET    /api/products             --> notsofluffy-backend/internal/handlers.(*PublicHandler).GetPublicProducts-fm (4 handlers)
+[GIN-debug] POST   /api/auth/register        --> notsofluffy-backend/internal/handlers.(*AuthHandler).Register-fm (4 handlers)
+[GIN-debug] POST   /api/auth/login           --> notsofluffy-backend/internal/handlers.(*AuthHandler).Login-fm (4 handlers)
+[GIN-debug] POST   /api/auth/refresh         --> notsofluffy-backend/internal/handlers.(*AuthHandler).RefreshToken-fm (4 handlers)
+[GIN-debug] GET    /api/auth/profile         --> notsofluffy-backend/internal/handlers.(*AuthHandler).Profile-fm (5 handlers)
+[GIN-debug] GET    /api/admin/users          --> notsofluffy-backend/internal/handlers.(*AdminHandler).ListUsers-fm (5 handlers)
+[GIN-debug] POST   /api/admin/users          --> notsofluffy-backend/internal/handlers.(*AdminHandler).CreateUser-fm (5 handlers)
+[GIN-debug] PUT    /api/admin/users/:id      --> notsofluffy-backend/internal/handlers.(*AdminHandler).UpdateUser-fm (5 handlers)
+[GIN-debug] DELETE /api/admin/users/:id      --> notsofluffy-backend/internal/handlers.(*AdminHandler).DeleteUser-fm (5 handlers)
+[GIN-debug] POST   /api/admin/images/upload  --> notsofluffy-backend/internal/handlers.(*AdminHandler).UploadImage-fm (5 handlers)
+[GIN-debug] GET    /api/admin/images         --> notsofluffy-backend/internal/handlers.(*AdminHandler).ListImages-fm (5 handlers)
+[GIN-debug] DELETE /api/admin/images/:id     --> notsofluffy-backend/internal/handlers.(*AdminHandler).DeleteImage-fm (5 handlers)
+[GIN-debug] GET    /api/admin/categories     --> notsofluffy-backend/internal/handlers.(*AdminHandler).ListCategories-fm (5 handlers)
+[GIN-debug] POST   /api/admin/categories     --> notsofluffy-backend/internal/handlers.(*AdminHandler).CreateCategory-fm (5 handlers)
+[GIN-debug] GET    /api/admin/categories/:id --> notsofluffy-backend/internal/handlers.(*AdminHandler).GetCategory-fm (5 handlers)
+[GIN-debug] PUT    /api/admin/categories/:id --> notsofluffy-backend/internal/handlers.(*AdminHandler).UpdateCategory-fm (5 handlers)
+[GIN-debug] DELETE /api/admin/categories/:id --> notsofluffy-backend/internal/handlers.(*AdminHandler).DeleteCategory-fm (5 handlers)
+[GIN-debug] PATCH  /api/admin/categories/:id/toggle --> notsofluffy-backend/internal/handlers.(*AdminHandler).ToggleCategoryActive-fm (5 handlers)
+[GIN-debug] GET    /api/admin/materials      --> notsofluffy-backend/internal/handlers.(*AdminHandler).ListMaterials-fm (5 handlers)
+[GIN-debug] POST   /api/admin/materials      --> notsofluffy-backend/internal/handlers.(*AdminHandler).CreateMaterial-fm (5 handlers)
+[GIN-debug] GET    /api/admin/materials/:id  --> notsofluffy-backend/internal/handlers.(*AdminHandler).GetMaterial-fm (5 handlers)
+[GIN-debug] PUT    /api/admin/materials/:id  --> notsofluffy-backend/internal/handlers.(*AdminHandler).UpdateMaterial-fm (5 handlers)
+[GIN-debug] DELETE /api/admin/materials/:id  --> notsofluffy-backend/internal/handlers.(*AdminHandler).DeleteMaterial-fm (5 handlers)
+[GIN-debug] GET    /api/admin/colors         --> notsofluffy-backend/internal/handlers.(*AdminHandler).ListColors-fm (5 handlers)
+[GIN-debug] POST   /api/admin/colors         --> notsofluffy-backend/internal/handlers.(*AdminHandler).CreateColor-fm (5 handlers)
+[GIN-debug] GET    /api/admin/colors/:id     --> notsofluffy-backend/internal/handlers.(*AdminHandler).GetColor-fm (5 handlers)
+[GIN-debug] PUT    /api/admin/colors/:id     --> notsofluffy-backend/internal/handlers.(*AdminHandler).UpdateColor-fm (5 handlers)
+[GIN-debug] DELETE /api/admin/colors/:id     --> notsofluffy-backend/internal/handlers.(*AdminHandler).DeleteColor-fm (5 handlers)
+[GIN-debug] GET    /api/admin/additional-services --> notsofluffy-backend/internal/handlers.(*AdminHandler).ListAdditionalServices-fm (5 handlers)
+[GIN-debug] POST   /api/admin/additional-services --> notsofluffy-backend/internal/handlers.(*AdminHandler).CreateAdditionalService-fm (5 handlers)
+[GIN-debug] GET    /api/admin/additional-services/:id --> notsofluffy-backend/internal/handlers.(*AdminHandler).GetAdditionalService-fm (5 handlers)
+[GIN-debug] PUT    /api/admin/additional-services/:id --> notsofluffy-backend/internal/handlers.(*AdminHandler).UpdateAdditionalService-fm (5 handlers)
+[GIN-debug] DELETE /api/admin/additional-services/:id --> notsofluffy-backend/internal/handlers.(*AdminHandler).DeleteAdditionalService-fm (5 handlers)
+[GIN-debug] GET    /api/admin/products       --> notsofluffy-backend/internal/handlers.(*AdminHandler).ListProducts-fm (5 handlers)
+[GIN-debug] POST   /api/admin/products       --> notsofluffy-backend/internal/handlers.(*AdminHandler).CreateProduct-fm (5 handlers)
+[GIN-debug] GET    /api/admin/products/:id   --> notsofluffy-backend/internal/handlers.(*AdminHandler).GetProduct-fm (5 handlers)
+[GIN-debug] PUT    /api/admin/products/:id   --> notsofluffy-backend/internal/handlers.(*AdminHandler).UpdateProduct-fm (5 handlers)
+[GIN-debug] DELETE /api/admin/products/:id   --> notsofluffy-backend/internal/handlers.(*AdminHandler).DeleteProduct-fm (5 handlers)
+[GIN-debug] GET    /api/admin/sizes          --> notsofluffy-backend/internal/handlers.(*AdminHandler).ListSizes-fm (5 handlers)
+[GIN-debug] POST   /api/admin/sizes          --> notsofluffy-backend/internal/handlers.(*AdminHandler).CreateSize-fm (5 handlers)
+[GIN-debug] GET    /api/admin/sizes/:id      --> notsofluffy-backend/internal/handlers.(*AdminHandler).GetSize-fm (5 handlers)
+[GIN-debug] PUT    /api/admin/sizes/:id      --> notsofluffy-backend/internal/handlers.(*AdminHandler).UpdateSize-fm (5 handlers)
+[GIN-debug] DELETE /api/admin/sizes/:id      --> notsofluffy-backend/internal/handlers.(*AdminHandler).DeleteSize-fm (5 handlers)
+[GIN-debug] GET    /api/admin/product-variants --> notsofluffy-backend/internal/handlers.(*AdminHandler).ListProductVariants-fm (5 handlers)
+[GIN-debug] POST   /api/admin/product-variants --> notsofluffy-backend/internal/handlers.(*AdminHandler).CreateProductVariant-fm (5 handlers)
+[GIN-debug] GET    /api/admin/product-variants/:id --> notsofluffy-backend/internal/handlers.(*AdminHandler).GetProductVariant-fm (5 handlers)
+[GIN-debug] PUT    /api/admin/product-variants/:id --> notsofluffy-backend/internal/handlers.(*AdminHandler).UpdateProductVariant-fm (5 handlers)
+[GIN-debug] DELETE /api/admin/product-variants/:id --> notsofluffy-backend/internal/handlers.(*AdminHandler).DeleteProductVariant-fm (5 handlers)
+2025/07/11 15:17:34 Server starting on port 8080
+[GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
+Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies for details.
+[GIN-debug] Listening and serving HTTP on :8080
+[GIN] 2025/07/11 - 15:17:43 | 500 |    1.436405ms |             ::1 | GET      "/api/products?page=1&limit=12&category=kurtki"
+signal: killed

@@ -282,6 +282,7 @@ type ProductWithRelations struct {
 	Category           *CategoryResponse             `json:"category,omitempty"`
 	Images             []ImageResponse               `json:"images"`
 	AdditionalServices []AdditionalServiceResponse   `json:"additional_services"`
+	MinPrice           float64                       `json:"min_price"`
 }
 
 type ProductRequest struct {
@@ -310,6 +311,7 @@ type ProductResponse struct {
 	Category           *CategoryResponse             `json:"category,omitempty"`
 	Images             []ImageResponse               `json:"images"`
 	AdditionalServices []AdditionalServiceResponse   `json:"additional_services"`
+	MinPrice           float64                       `json:"min_price"`
 }
 
 type ProductListResponse struct {

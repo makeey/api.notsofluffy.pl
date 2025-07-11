@@ -6,6 +6,7 @@ import (
 	"time"
 	"notsofluffy-backend/internal/auth"
 	"notsofluffy-backend/internal/models"
+	"github.com/lib/pq"
 )
 
 type UserQueries struct {
@@ -584,6 +585,95 @@ func (q *CategoryQueries) ListCategories(page, limit int, search string, activeO
 	}
 
 	return categories, total, nil
+}
+
+// GetActiveCategories returns all active categories with their images
+func (q *CategoryQueries) GetActiveCategories() ([]models.CategoryWithImage, error) {
+	query := `
+		SELECT 
+			c.id, c.name, c.slug, c.image_id, c.active, c.chart_only, c.created_at, c.updated_at,
+			i.id, i.filename, i.original_name, i.path, i.size_bytes, i.mime_type, i.uploaded_by, i.created_at, i.updated_at
+		FROM categories c
+		LEFT JOIN images i ON c.image_id = i.id
+		WHERE c.active = true
+		ORDER BY c.name
+	`
+
+	rows, err := q.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active categories: %w", err)
+	}
+	defer rows.Close()
+
+	var categories []models.CategoryWithImage
+	for rows.Next() {
+		var category models.CategoryWithImage
+		var image models.Image
+		var imageCreatedAt, imageUpdatedAt sql.NullTime
+		var imageID, imageSizeBytes, imageUploadedBy sql.NullInt64
+		var imageFilename, imageOriginalName, imagePath, imageMimeType sql.NullString
+
+		err := rows.Scan(
+			&category.ID,
+			&category.Name,
+			&category.Slug,
+			&category.ImageID,
+			&category.Active,
+			&category.ChartOnly,
+			&category.CreatedAt,
+			&category.UpdatedAt,
+			&imageID,
+			&imageFilename,
+			&imageOriginalName,
+			&imagePath,
+			&imageSizeBytes,
+			&imageMimeType,
+			&imageUploadedBy,
+			&imageCreatedAt,
+			&imageUpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan category: %w", err)
+		}
+
+		// Add image if it exists
+		if category.ImageID != nil && imageID.Valid {
+			image.ID = int(imageID.Int64)
+			image.Filename = imageFilename.String
+			image.OriginalName = imageOriginalName.String
+			image.Path = imagePath.String
+			image.SizeBytes = imageSizeBytes.Int64
+			image.MimeType = imageMimeType.String
+			image.UploadedBy = int(imageUploadedBy.Int64)
+			
+			if imageCreatedAt.Valid {
+				image.CreatedAt = imageCreatedAt.Time
+			}
+			if imageUpdatedAt.Valid {
+				image.UpdatedAt = imageUpdatedAt.Time
+			}
+			
+			category.Image = &models.ImageResponse{
+				ID:           image.ID,
+				Filename:     image.Filename,
+				OriginalName: image.OriginalName,
+				Path:         image.Path,
+				SizeBytes:    image.SizeBytes,
+				MimeType:     image.MimeType,
+				UploadedBy:   image.UploadedBy,
+				CreatedAt:    image.CreatedAt.Format(time.RFC3339),
+				UpdatedAt:    image.UpdatedAt.Format(time.RFC3339),
+			}
+		}
+
+		categories = append(categories, category)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating categories: %w", err)
+	}
+
+	return categories, nil
 }
 
 func (q *CategoryQueries) UpdateCategory(id int, name, slug string, imageID *int, active, chartOnly bool) (*models.Category, error) {
@@ -1921,6 +2011,174 @@ func (q *ProductQueries) ReplaceServices(productID int, serviceIDs []int) error 
 	}
 	
 	return nil
+}
+
+// GetPublicProducts returns products for public access with filtering and pagination
+func (q *ProductQueries) GetPublicProducts(page, limit int, search string, categoryIDs []int) ([]models.ProductWithRelations, error) {
+	offset := (page - 1) * limit
+	
+	whereClause := "WHERE (c.active = true OR c.id IS NULL)"
+	args := []interface{}{}
+	argCount := 0
+	
+	if search != "" {
+		argCount++
+		whereClause += fmt.Sprintf(" AND (p.name ILIKE $%d OR p.short_description ILIKE $%d OR p.description ILIKE $%d)", argCount, argCount, argCount)
+		args = append(args, "%"+search+"%")
+	}
+	
+	if len(categoryIDs) > 0 {
+		argCount++
+		whereClause += fmt.Sprintf(" AND p.category_id = ANY($%d)", argCount)
+		args = append(args, pq.Array(categoryIDs))
+	}
+	
+	// Get paginated results with all relations
+	argCount++
+	limitArg := argCount
+	argCount++
+	offsetArg := argCount
+	
+	query := fmt.Sprintf(`
+		SELECT 
+			p.id, p.name, p.short_description, p.description, p.material_id, p.main_image_id, p.category_id, p.created_at, p.updated_at,
+			mi.id, mi.filename, mi.original_name, mi.path, mi.size_bytes, mi.mime_type, mi.uploaded_by, mi.created_at, mi.updated_at,
+			m.id, m.name, m.created_at, m.updated_at,
+			c.id, c.name, c.slug, c.image_id, c.active, c.chart_only, c.created_at, c.updated_at,
+			COALESCE(MIN(s.base_price), 0) as min_price
+		FROM products p
+		JOIN images mi ON p.main_image_id = mi.id
+		LEFT JOIN materials m ON p.material_id = m.id
+		LEFT JOIN categories c ON p.category_id = c.id
+		LEFT JOIN sizes s ON p.id = s.product_id
+		%s
+		GROUP BY p.id, p.name, p.short_description, p.description, p.material_id, p.main_image_id, p.category_id, p.created_at, p.updated_at,
+			mi.id, mi.filename, mi.original_name, mi.path, mi.size_bytes, mi.mime_type, mi.uploaded_by, mi.created_at, mi.updated_at,
+			m.id, m.name, m.created_at, m.updated_at,
+			c.id, c.name, c.slug, c.image_id, c.active, c.chart_only, c.created_at, c.updated_at
+		ORDER BY p.created_at DESC
+		LIMIT $%d OFFSET $%d
+	`, whereClause, limitArg, offsetArg)
+	
+	args = append(args, limit, offset)
+	
+	rows, err := q.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get public products - query: %s, args: %v, error: %w", query, args, err)
+	}
+	defer rows.Close()
+	
+	var products []models.ProductWithRelations
+	
+	for rows.Next() {
+		var product models.ProductWithRelations
+		var mainImage models.ImageResponse
+		var material models.MaterialResponse
+		var category models.CategoryResponse
+		var materialID, categoryID sql.NullInt64
+		var materialName, materialCreatedAt, materialUpdatedAt sql.NullString
+		var categoryName, categorySlug, categoryCreatedAt, categoryUpdatedAt sql.NullString
+		var categoryImageID sql.NullInt64
+		var categoryActive, categoryChartOnly sql.NullBool
+		var minPrice sql.NullFloat64
+		
+		err := rows.Scan(
+			&product.ID, &product.Name, &product.ShortDescription, &product.Description,
+			&product.MaterialID, &product.MainImageID, &product.CategoryID, &product.CreatedAt, &product.UpdatedAt,
+			&mainImage.ID, &mainImage.Filename, &mainImage.OriginalName, &mainImage.Path,
+			&mainImage.SizeBytes, &mainImage.MimeType, &mainImage.UploadedBy, &mainImage.CreatedAt, &mainImage.UpdatedAt,
+			&materialID, &materialName, &materialCreatedAt, &materialUpdatedAt,
+			&categoryID, &categoryName, &categorySlug, &categoryImageID, &categoryActive, &categoryChartOnly, &categoryCreatedAt, &categoryUpdatedAt,
+			&minPrice,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan product: %w", err)
+		}
+		
+		product.MainImage = mainImage
+		
+		// Handle optional material
+		if materialID.Valid {
+			material.ID = int(materialID.Int64)
+			material.Name = materialName.String
+			material.CreatedAt = materialCreatedAt.String
+			material.UpdatedAt = materialUpdatedAt.String
+			product.Material = &material
+		}
+		
+		// Handle optional category
+		if categoryID.Valid {
+			category.ID = int(categoryID.Int64)
+			category.Name = categoryName.String
+			category.Slug = categorySlug.String
+			if categoryImageID.Valid {
+				imageID := int(categoryImageID.Int64)
+				category.ImageID = &imageID
+			}
+			category.Active = categoryActive.Bool
+			category.ChartOnly = categoryChartOnly.Bool
+			category.CreatedAt = categoryCreatedAt.String
+			category.UpdatedAt = categoryUpdatedAt.String
+			product.Category = &category
+		}
+		
+		// Set minimum price
+		if minPrice.Valid {
+			product.MinPrice = minPrice.Float64
+		}
+		
+		// Get product images
+		images, err := q.getProductImages(product.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get product images: %w", err)
+		}
+		product.Images = images
+		
+		// Get additional services
+		services, err := q.getProductServices(product.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get product services: %w", err)
+		}
+		product.AdditionalServices = services
+		
+		products = append(products, product)
+	}
+	
+	return products, nil
+}
+
+// GetPublicProductsCount returns the count of products for public access with filtering
+func (q *ProductQueries) GetPublicProductsCount(search string, categoryIDs []int) (int, error) {
+	whereClause := "WHERE (c.active = true OR c.id IS NULL)"
+	args := []interface{}{}
+	argCount := 0
+	
+	if search != "" {
+		argCount++
+		whereClause += fmt.Sprintf(" AND (p.name ILIKE $%d OR p.short_description ILIKE $%d OR p.description ILIKE $%d)", argCount, argCount, argCount)
+		args = append(args, "%"+search+"%")
+	}
+	
+	if len(categoryIDs) > 0 {
+		argCount++
+		whereClause += fmt.Sprintf(" AND p.category_id = ANY($%d)", argCount)
+		args = append(args, pq.Array(categoryIDs))
+	}
+	
+	query := fmt.Sprintf(`
+		SELECT COUNT(DISTINCT p.id)
+		FROM products p
+		LEFT JOIN categories c ON p.category_id = c.id
+		%s
+	`, whereClause)
+	
+	var count int
+	err := q.db.QueryRow(query, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count public products: %w", err)
+	}
+	
+	return count, nil
 }
 
 // Size queries

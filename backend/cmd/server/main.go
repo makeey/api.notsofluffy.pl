@@ -47,6 +47,14 @@ func main() {
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(db, cfg.JWTSecret)
 	adminHandler := handlers.NewAdminHandler(db)
+	publicHandler := handlers.NewPublicHandler(db)
+
+	// Public routes
+	public := r.Group("/api")
+	{
+		public.GET("/categories", publicHandler.GetActiveCategories)
+		public.GET("/products", publicHandler.GetPublicProducts)
+	}
 
 	// Auth routes
 	auth := r.Group("/api/auth")
