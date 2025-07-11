@@ -55,6 +55,11 @@ func main() {
 	adminHandler := handlers.NewAdminHandler(db)
 	publicHandler := handlers.NewPublicHandler(db)
 	cartHandler := handlers.NewCartHandler(db)
+	
+	// Initialize order handler
+	orderQueries := database.NewOrderQueries(db)
+	cartQueries := database.NewCartQueries(db)
+	orderHandler := handlers.NewOrderHandler(orderQueries, cartQueries)
 
 	// Public routes
 	public := r.Group("/api")
@@ -82,6 +87,20 @@ func main() {
 		auth.POST("/login", authHandler.Login)
 		auth.POST("/refresh", authHandler.RefreshToken)
 		auth.GET("/profile", middleware.AuthMiddleware(cfg.JWTSecret), authHandler.Profile)
+	}
+
+	// Order routes
+	orders := r.Group("/api/orders")
+	{
+		orders.POST("", orderHandler.CreateOrder)
+		orders.GET("/:id", orderHandler.GetOrder)
+	}
+
+	// User routes (authenticated)
+	user := r.Group("/api/user")
+	user.Use(middleware.AuthMiddleware(cfg.JWTSecret))
+	{
+		user.GET("/orders", orderHandler.GetUserOrders)
 	}
 
 	// Admin routes
@@ -148,6 +167,12 @@ func main() {
 		admin.GET("/product-variants/:id", adminHandler.GetProductVariant)
 		admin.PUT("/product-variants/:id", adminHandler.UpdateProductVariant)
 		admin.DELETE("/product-variants/:id", adminHandler.DeleteProductVariant)
+
+		// Order management
+		admin.GET("/orders", adminHandler.ListOrders)
+		admin.GET("/orders/:id", adminHandler.GetOrderDetails)
+		admin.PUT("/orders/:id/status", adminHandler.UpdateOrderStatus)
+		admin.DELETE("/orders/:id", adminHandler.DeleteOrder)
 	}
 
 	port := os.Getenv("PORT")

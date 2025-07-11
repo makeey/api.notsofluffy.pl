@@ -29,6 +29,7 @@ type AdminHandler struct {
 	productQueries           *database.ProductQueries
 	sizeQueries              *database.SizeQueries
 	productVariantQueries    *database.ProductVariantQueries
+	orderQueries             *database.OrderQueries
 }
 
 func NewAdminHandler(db *sql.DB) *AdminHandler {
@@ -43,6 +44,7 @@ func NewAdminHandler(db *sql.DB) *AdminHandler {
 		productQueries:           database.NewProductQueries(db),
 		sizeQueries:              database.NewSizeQueries(db),
 		productVariantQueries:    database.NewProductVariantQueries(db),
+		orderQueries:             database.NewOrderQueries(db),
 	}
 }
 
@@ -1918,4 +1920,120 @@ func (h *AdminHandler) DeleteProductVariant(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Product variant deleted successfully"})
+}
+
+// Order Management
+
+func (h *AdminHandler) ListOrders(c *gin.Context) {
+	// Parse query parameters
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	email := c.Query("email")
+	status := c.Query("status")
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	orders, err := h.orderQueries.ListOrders(page, limit, nil, email, status)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get orders"})
+		return
+	}
+
+	c.JSON(http.StatusOK, orders)
+}
+
+func (h *AdminHandler) GetOrderDetails(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+		return
+	}
+
+	order, err := h.orderQueries.GetOrderByID(id)
+	if err != nil {
+		if err.Error() == "order not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get order"})
+		return
+	}
+
+	c.JSON(http.StatusOK, order)
+}
+
+func (h *AdminHandler) UpdateOrderStatus(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+		return
+	}
+
+	var req models.OrderStatusUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate status
+	validStatuses := []string{
+		models.OrderStatusPending,
+		models.OrderStatusProcessing,
+		models.OrderStatusShipped,
+		models.OrderStatusDelivered,
+		models.OrderStatusCancelled,
+	}
+	
+	isValid := false
+	for _, status := range validStatuses {
+		if req.Status == status {
+			isValid = true
+			break
+		}
+	}
+	
+	if !isValid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid status"})
+		return
+	}
+
+	err = h.orderQueries.UpdateOrderStatus(id, req.Status)
+	if err != nil {
+		if err.Error() == "order not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update order status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Order status updated successfully"})
+}
+
+func (h *AdminHandler) DeleteOrder(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+		return
+	}
+
+	err = h.orderQueries.DeleteOrder(id)
+	if err != nil {
+		if err.Error() == "order not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete order"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Order deleted successfully"})
 }

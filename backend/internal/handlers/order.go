@@ -1,0 +1,343 @@
+package handlers
+
+import (
+	"net/http"
+	"strconv"
+
+	"github.com/gin-gonic/gin"
+	"notsofluffy-backend/internal/auth"
+	"notsofluffy-backend/internal/database"
+	"notsofluffy-backend/internal/models"
+)
+
+type OrderHandler struct {
+	orderQueries *database.OrderQueries
+	cartQueries  *database.CartQueries
+}
+
+func NewOrderHandler(orderQueries *database.OrderQueries, cartQueries *database.CartQueries) *OrderHandler {
+	return &OrderHandler{
+		orderQueries: orderQueries,
+		cartQueries:  cartQueries,
+	}
+}
+
+// CreateOrder creates a new order from cart
+func (h *OrderHandler) CreateOrder(c *gin.Context) {
+	var req models.OrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get session ID
+	sessionID, exists := c.Get("session_id")
+	if !exists {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No session found"})
+		return
+	}
+
+	sessionIDStr := sessionID.(string)
+
+	// Get user ID if authenticated
+	var userID *int
+	if userClaim, exists := c.Get("user"); exists {
+		if user, ok := userClaim.(*auth.Claims); ok {
+			userID = &user.UserID
+		}
+	}
+
+	// Get cart session
+	cartSession, err := h.cartQueries.GetOrCreateCartSession(sessionIDStr, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get cart session"})
+		return
+	}
+
+	// Get cart items
+	items, err := h.cartQueries.GetCartItems(cartSession.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get cart items"})
+		return
+	}
+
+	if len(items) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cart is empty"})
+		return
+	}
+
+	// Calculate totals
+	var totalItems int
+	var totalPrice float64
+	for _, item := range items {
+		totalItems += item.Quantity
+		totalPrice += item.TotalPrice
+	}
+
+	cart := models.CartResponse{
+		Items:      items,
+		TotalItems: totalItems,
+		TotalPrice: totalPrice,
+	}
+
+	// Calculate totals
+	subtotal := cart.TotalPrice
+	shippingCost := 0.0 // TODO: implement shipping calculation
+	taxAmount := 0.0    // TODO: implement tax calculation
+	totalAmount := subtotal + shippingCost + taxAmount
+
+	// Create order
+	order := &models.Order{
+		UserID:        userID,
+		SessionID:     &sessionIDStr,
+		Email:         req.Email,
+		Status:        models.OrderStatusPending,
+		TotalAmount:   totalAmount,
+		Subtotal:      subtotal,
+		ShippingCost:  shippingCost,
+		TaxAmount:     taxAmount,
+		PaymentMethod: req.PaymentMethod,
+		PaymentStatus: models.PaymentStatusPending,
+		Notes:         req.Notes,
+	}
+
+	// Create shipping address
+	shippingAddr := &models.ShippingAddress{
+		FirstName:     req.ShippingAddress.FirstName,
+		LastName:      req.ShippingAddress.LastName,
+		Company:       req.ShippingAddress.Company,
+		AddressLine1:  req.ShippingAddress.AddressLine1,
+		AddressLine2:  req.ShippingAddress.AddressLine2,
+		City:          req.ShippingAddress.City,
+		StateProvince: req.ShippingAddress.StateProvince,
+		PostalCode:    req.ShippingAddress.PostalCode,
+		Country:       req.ShippingAddress.Country,
+		Phone:         req.ShippingAddress.Phone,
+	}
+
+	// Create billing address
+	billingAddr := &models.BillingAddress{
+		FirstName:      req.BillingAddress.FirstName,
+		LastName:       req.BillingAddress.LastName,
+		Company:        req.BillingAddress.Company,
+		AddressLine1:   req.BillingAddress.AddressLine1,
+		AddressLine2:   req.BillingAddress.AddressLine2,
+		City:           req.BillingAddress.City,
+		StateProvince:  req.BillingAddress.StateProvince,
+		PostalCode:     req.BillingAddress.PostalCode,
+		Country:        req.BillingAddress.Country,
+		Phone:          req.BillingAddress.Phone,
+		SameAsShipping: req.SameAsShipping,
+	}
+
+	// Convert cart items to order items
+	var orderItems []models.OrderItem
+	for _, cartItem := range cart.Items {
+		// Create size dimensions map
+		sizeDimensions := map[string]interface{}{
+			"a": cartItem.Size.A,
+			"b": cartItem.Size.B,
+			"c": cartItem.Size.C,
+			"d": cartItem.Size.D,
+			"e": cartItem.Size.E,
+			"f": cartItem.Size.F,
+		}
+
+		orderItem := models.OrderItem{
+			ProductID:          cartItem.ProductID,
+			ProductName:        cartItem.Product.Name,
+			ProductDescription: &cartItem.Product.Description,
+			VariantID:          cartItem.VariantID,
+			VariantName:        cartItem.Variant.Name,
+			VariantColorName:   &cartItem.Variant.Color.Name,
+			VariantColorCustom: cartItem.Variant.Color.Custom,
+			SizeID:             cartItem.SizeID,
+			SizeName:           cartItem.Size.Name,
+			SizeDimensions:     sizeDimensions,
+			Quantity:           cartItem.Quantity,
+			UnitPrice:          cartItem.PricePerItem,
+			TotalPrice:         cartItem.TotalPrice,
+		}
+
+		// Convert additional services
+		for _, service := range cartItem.AdditionalServices {
+			orderItem.Services = append(orderItem.Services, models.OrderItemService{
+				ServiceID:          service.ID,
+				ServiceName:        service.Name,
+				ServiceDescription: &service.Description,
+				ServicePrice:       service.Price,
+			})
+		}
+
+		orderItems = append(orderItems, orderItem)
+	}
+
+	// Create order in database
+	orderResponse, err := h.orderQueries.CreateOrder(order, shippingAddr, billingAddr, orderItems)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create order"})
+		return
+	}
+
+	// Clear cart after successful order
+	err = h.cartQueries.ClearCart(cartSession.ID)
+	if err != nil {
+		// Log error but don't fail the request since order was created
+		// TODO: implement proper logging
+	}
+
+	c.JSON(http.StatusCreated, orderResponse)
+}
+
+// GetOrder retrieves an order by ID
+func (h *OrderHandler) GetOrder(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+		return
+	}
+
+	order, err := h.orderQueries.GetOrderByID(id)
+	if err != nil {
+		if err.Error() == "order not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get order"})
+		return
+	}
+
+	// Check if user has permission to view this order
+	if userClaim, exists := c.Get("user"); exists {
+		if user, ok := userClaim.(*auth.Claims); ok {
+			// User can view their own orders
+			if order.UserID != nil && *order.UserID == user.UserID {
+				c.JSON(http.StatusOK, order)
+				return
+			}
+			// Admin can view all orders
+			if user.Role == "admin" {
+				c.JSON(http.StatusOK, order)
+				return
+			}
+		}
+	}
+
+	// For guest orders, check session
+	sessionID, exists := c.Get("session_id")
+	if exists && order.SessionID != nil && *order.SessionID == sessionID.(string) {
+		c.JSON(http.StatusOK, order)
+		return
+	}
+
+	c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+}
+
+// ListOrders lists orders for admin
+func (h *OrderHandler) ListOrders(c *gin.Context) {
+	// Parse query parameters
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	email := c.Query("email")
+	status := c.Query("status")
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	orders, err := h.orderQueries.ListOrders(page, limit, nil, email, status)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get orders"})
+		return
+	}
+
+	c.JSON(http.StatusOK, orders)
+}
+
+// UpdateOrderStatus updates order status (admin only)
+func (h *OrderHandler) UpdateOrderStatus(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+		return
+	}
+
+	var req models.OrderStatusUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate status
+	validStatuses := []string{
+		models.OrderStatusPending,
+		models.OrderStatusProcessing,
+		models.OrderStatusShipped,
+		models.OrderStatusDelivered,
+		models.OrderStatusCancelled,
+	}
+	
+	isValid := false
+	for _, status := range validStatuses {
+		if req.Status == status {
+			isValid = true
+			break
+		}
+	}
+	
+	if !isValid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid status"})
+		return
+	}
+
+	err = h.orderQueries.UpdateOrderStatus(id, req.Status)
+	if err != nil {
+		if err.Error() == "order not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update order status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Order status updated successfully"})
+}
+
+// GetUserOrders retrieves orders for the authenticated user
+func (h *OrderHandler) GetUserOrders(c *gin.Context) {
+	userClaim, exists := c.Get("user")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	user, ok := userClaim.(*auth.Claims)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user claims"})
+		return
+	}
+
+	// Parse query parameters
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	orders, err := h.orderQueries.GetOrdersByUserID(user.UserID, page, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get orders"})
+		return
+	}
+
+	c.JSON(http.StatusOK, orders)
+}

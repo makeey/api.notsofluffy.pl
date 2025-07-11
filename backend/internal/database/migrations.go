@@ -243,6 +243,102 @@ func Migrate(db *sql.DB) error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_cart_item_services_cart_item_id ON cart_item_services(cart_item_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_cart_item_services_service_id ON cart_item_services(additional_service_id);`,
+		
+		// Orders tables
+		`CREATE TABLE IF NOT EXISTS orders (
+			id SERIAL PRIMARY KEY,
+			user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+			session_id VARCHAR(255),
+			email VARCHAR(255) NOT NULL,
+			status VARCHAR(50) NOT NULL DEFAULT 'pending',
+			total_amount DECIMAL(10, 2) NOT NULL,
+			subtotal DECIMAL(10, 2) NOT NULL,
+			shipping_cost DECIMAL(10, 2) DEFAULT 0,
+			tax_amount DECIMAL(10, 2) DEFAULT 0,
+			payment_method VARCHAR(100),
+			payment_status VARCHAR(50) DEFAULT 'pending',
+			notes TEXT,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_orders_session_id ON orders(session_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_orders_email ON orders(email);`,
+		`CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);`,
+		`CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);`,
+		`DROP TRIGGER IF EXISTS update_orders_updated_at ON orders;`,
+		`CREATE TRIGGER update_orders_updated_at
+		BEFORE UPDATE ON orders
+		FOR EACH ROW
+		EXECUTE FUNCTION update_updated_at_column();`,
+		
+		`CREATE TABLE IF NOT EXISTS shipping_addresses (
+			id SERIAL PRIMARY KEY,
+			order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+			first_name VARCHAR(100) NOT NULL,
+			last_name VARCHAR(100) NOT NULL,
+			company VARCHAR(100),
+			address_line1 VARCHAR(255) NOT NULL,
+			address_line2 VARCHAR(255),
+			city VARCHAR(100) NOT NULL,
+			state_province VARCHAR(100) NOT NULL,
+			postal_code VARCHAR(20) NOT NULL,
+			country VARCHAR(100) NOT NULL DEFAULT 'Poland',
+			phone VARCHAR(50),
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_shipping_addresses_order_id ON shipping_addresses(order_id);`,
+		
+		`CREATE TABLE IF NOT EXISTS billing_addresses (
+			id SERIAL PRIMARY KEY,
+			order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+			first_name VARCHAR(100) NOT NULL,
+			last_name VARCHAR(100) NOT NULL,
+			company VARCHAR(100),
+			address_line1 VARCHAR(255) NOT NULL,
+			address_line2 VARCHAR(255),
+			city VARCHAR(100) NOT NULL,
+			state_province VARCHAR(100) NOT NULL,
+			postal_code VARCHAR(20) NOT NULL,
+			country VARCHAR(100) NOT NULL DEFAULT 'Poland',
+			phone VARCHAR(50),
+			same_as_shipping BOOLEAN DEFAULT FALSE,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_billing_addresses_order_id ON billing_addresses(order_id);`,
+		
+		`CREATE TABLE IF NOT EXISTS order_items (
+			id SERIAL PRIMARY KEY,
+			order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+			product_id INTEGER NOT NULL,
+			product_name VARCHAR(255) NOT NULL,
+			product_description TEXT,
+			variant_id INTEGER NOT NULL,
+			variant_name VARCHAR(255) NOT NULL,
+			variant_color_name VARCHAR(100),
+			variant_color_custom BOOLEAN DEFAULT FALSE,
+			size_id INTEGER NOT NULL,
+			size_name VARCHAR(100) NOT NULL,
+			size_dimensions JSONB,
+			quantity INTEGER NOT NULL,
+			unit_price DECIMAL(10, 2) NOT NULL,
+			total_price DECIMAL(10, 2) NOT NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_order_items_product_id ON order_items(product_id);`,
+		
+		`CREATE TABLE IF NOT EXISTS order_item_services (
+			id SERIAL PRIMARY KEY,
+			order_item_id INTEGER NOT NULL REFERENCES order_items(id) ON DELETE CASCADE,
+			service_id INTEGER NOT NULL,
+			service_name VARCHAR(255) NOT NULL,
+			service_description TEXT,
+			service_price DECIMAL(10, 2) NOT NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_order_item_services_order_item_id ON order_item_services(order_item_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_order_item_services_service_id ON order_item_services(service_id);`,
 	}
 
 	for i, migration := range migrations {
