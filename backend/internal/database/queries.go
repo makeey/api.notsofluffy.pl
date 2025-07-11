@@ -2192,7 +2192,7 @@ func (q *ProductQueries) GetProductVariants(productID int) ([]models.ProductVari
 func (q *ProductQueries) GetProductSizes(productID int) ([]models.SizeResponse, error) {
 	query := `
 		SELECT s.id, s.name, s.a, s.b, s.c, s.d, s.e, s.f, 
-			   s.base_price, s.product_id, s.created_at, s.updated_at
+			   s.base_price, s.product_id, s.use_stock, s.stock_quantity, s.reserved_quantity, s.created_at, s.updated_at
 		FROM sizes s
 		WHERE s.product_id = $1
 		ORDER BY s.base_price ASC
@@ -2211,7 +2211,7 @@ func (q *ProductQueries) GetProductSizes(productID int) ([]models.SizeResponse, 
 		err := rows.Scan(
 			&size.ID, &size.Name, &size.A, &size.B, &size.C, 
 			&size.D, &size.E, &size.F, &size.BasePrice,
-			&size.ProductID, &createdAt, &updatedAt,
+			&size.ProductID, &size.UseStock, &size.StockQuantity, &size.ReservedQuantity, &createdAt, &updatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan size: %w", err)
@@ -2219,6 +2219,14 @@ func (q *ProductQueries) GetProductSizes(productID int) ([]models.SizeResponse, 
 		
 		size.CreatedAt = createdAt.Format(time.RFC3339)
 		size.UpdatedAt = updatedAt.Format(time.RFC3339)
+		
+		// Calculate available stock
+		if size.UseStock {
+			size.AvailableStock = size.StockQuantity - size.ReservedQuantity
+		} else {
+			size.AvailableStock = -1 // -1 indicates unlimited stock
+		}
+		
 		sizes = append(sizes, size)
 	}
 	
@@ -2236,13 +2244,13 @@ func NewSizeQueries(db *sql.DB) *SizeQueries {
 
 func (q *SizeQueries) CreateSize(size *models.Size) error {
 	query := `
-		INSERT INTO sizes (name, product_id, base_price, a, b, c, d, e, f)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO sizes (name, product_id, base_price, a, b, c, d, e, f, use_stock, stock_quantity)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, created_at, updated_at
 	`
 	
 	err := q.db.QueryRow(query, size.Name, size.ProductID, size.BasePrice, 
-		size.A, size.B, size.C, size.D, size.E, size.F).Scan(&size.ID, &size.CreatedAt, &size.UpdatedAt)
+		size.A, size.B, size.C, size.D, size.E, size.F, size.UseStock, size.StockQuantity).Scan(&size.ID, &size.CreatedAt, &size.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to create size: %w", err)
 	}
@@ -2252,7 +2260,7 @@ func (q *SizeQueries) CreateSize(size *models.Size) error {
 
 func (q *SizeQueries) GetSizeByID(id int) (*models.SizeWithProduct, error) {
 	query := `
-		SELECT s.id, s.name, s.product_id, s.base_price, s.a, s.b, s.c, s.d, s.e, s.f, s.created_at, s.updated_at,
+		SELECT s.id, s.name, s.product_id, s.base_price, s.a, s.b, s.c, s.d, s.e, s.f, s.use_stock, s.stock_quantity, s.reserved_quantity, s.created_at, s.updated_at,
 			   p.id, p.name, p.short_description, p.description, p.material_id, p.main_image_id, p.category_id, p.created_at, p.updated_at
 		FROM sizes s
 		JOIN products p ON s.product_id = p.id
@@ -2263,7 +2271,7 @@ func (q *SizeQueries) GetSizeByID(id int) (*models.SizeWithProduct, error) {
 	var product models.Product
 	
 	err := q.db.QueryRow(query, id).Scan(
-		&size.ID, &size.Name, &size.ProductID, &size.BasePrice, &size.A, &size.B, &size.C, &size.D, &size.E, &size.F, &size.CreatedAt, &size.UpdatedAt,
+		&size.ID, &size.Name, &size.ProductID, &size.BasePrice, &size.A, &size.B, &size.C, &size.D, &size.E, &size.F, &size.UseStock, &size.StockQuantity, &size.ReservedQuantity, &size.CreatedAt, &size.UpdatedAt,
 		&product.ID, &product.Name, &product.ShortDescription, &product.Description, &product.MaterialID, &product.MainImageID, &product.CategoryID, &product.CreatedAt, &product.UpdatedAt,
 	)
 	if err != nil {
@@ -2323,7 +2331,7 @@ func (q *SizeQueries) ListSizes(page, limit int, search string, productID *int) 
 	
 	// Get sizes
 	query := fmt.Sprintf(`
-		SELECT s.id, s.name, s.product_id, s.base_price, s.a, s.b, s.c, s.d, s.e, s.f, s.created_at, s.updated_at,
+		SELECT s.id, s.name, s.product_id, s.base_price, s.a, s.b, s.c, s.d, s.e, s.f, s.use_stock, s.stock_quantity, s.reserved_quantity, s.created_at, s.updated_at,
 			   p.id, p.name, p.short_description, p.description, p.material_id, p.main_image_id, p.category_id, p.created_at, p.updated_at
 		FROM sizes s
 		JOIN products p ON s.product_id = p.id
@@ -2346,7 +2354,7 @@ func (q *SizeQueries) ListSizes(page, limit int, search string, productID *int) 
 		var product models.Product
 		
 		err := rows.Scan(
-			&size.ID, &size.Name, &size.ProductID, &size.BasePrice, &size.A, &size.B, &size.C, &size.D, &size.E, &size.F, &size.CreatedAt, &size.UpdatedAt,
+			&size.ID, &size.Name, &size.ProductID, &size.BasePrice, &size.A, &size.B, &size.C, &size.D, &size.E, &size.F, &size.UseStock, &size.StockQuantity, &size.ReservedQuantity, &size.CreatedAt, &size.UpdatedAt,
 			&product.ID, &product.Name, &product.ShortDescription, &product.Description, &product.MaterialID, &product.MainImageID, &product.CategoryID, &product.CreatedAt, &product.UpdatedAt,
 		)
 		if err != nil {
@@ -2368,6 +2376,13 @@ func (q *SizeQueries) ListSizes(page, limit int, search string, productID *int) 
 			UpdatedAt:        product.UpdatedAt.Format(time.RFC3339),
 		}
 		
+		// Calculate available stock
+		if size.UseStock {
+			size.AvailableStock = size.StockQuantity - size.ReservedQuantity
+		} else {
+			size.AvailableStock = -1 // -1 indicates unlimited stock
+		}
+		
 		sizes = append(sizes, size)
 	}
 	
@@ -2377,13 +2392,13 @@ func (q *SizeQueries) ListSizes(page, limit int, search string, productID *int) 
 func (q *SizeQueries) UpdateSize(id int, size *models.Size) error {
 	query := `
 		UPDATE sizes 
-		SET name = $1, product_id = $2, base_price = $3, a = $4, b = $5, c = $6, d = $7, e = $8, f = $9
-		WHERE id = $10
+		SET name = $1, product_id = $2, base_price = $3, a = $4, b = $5, c = $6, d = $7, e = $8, f = $9, use_stock = $10, stock_quantity = $11
+		WHERE id = $12
 		RETURNING updated_at
 	`
 	
 	err := q.db.QueryRow(query, size.Name, size.ProductID, size.BasePrice,
-		size.A, size.B, size.C, size.D, size.E, size.F, id).Scan(&size.UpdatedAt)
+		size.A, size.B, size.C, size.D, size.E, size.F, size.UseStock, size.StockQuantity, id).Scan(&size.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("size not found")

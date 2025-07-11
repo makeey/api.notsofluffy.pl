@@ -1593,15 +1593,17 @@ func (h *AdminHandler) CreateSize(c *gin.Context) {
 	}
 
 	size := &models.Size{
-		Name:      req.Name,
-		ProductID: req.ProductID,
-		BasePrice: req.BasePrice,
-		A:         req.A,
-		B:         req.B,
-		C:         req.C,
-		D:         req.D,
-		E:         req.E,
-		F:         req.F,
+		Name:          req.Name,
+		ProductID:     req.ProductID,
+		BasePrice:     req.BasePrice,
+		A:             req.A,
+		B:             req.B,
+		C:             req.C,
+		D:             req.D,
+		E:             req.E,
+		F:             req.F,
+		UseStock:      req.UseStock,
+		StockQuantity: req.StockQuantity,
 	}
 
 	if err := h.sizeQueries.CreateSize(size); err != nil {
@@ -1668,16 +1670,18 @@ func (h *AdminHandler) UpdateSize(c *gin.Context) {
 	}
 
 	size := &models.Size{
-		ID:        id,
-		Name:      req.Name,
-		ProductID: req.ProductID,
-		BasePrice: req.BasePrice,
-		A:         req.A,
-		B:         req.B,
-		C:         req.C,
-		D:         req.D,
-		E:         req.E,
-		F:         req.F,
+		ID:            id,
+		Name:          req.Name,
+		ProductID:     req.ProductID,
+		BasePrice:     req.BasePrice,
+		A:             req.A,
+		B:             req.B,
+		C:             req.C,
+		D:             req.D,
+		E:             req.E,
+		F:             req.F,
+		UseStock:      req.UseStock,
+		StockQuantity: req.StockQuantity,
 	}
 
 	if err := h.sizeQueries.UpdateSize(id, size); err != nil {

@@ -353,6 +353,14 @@ func Migrate(db *sql.DB) error {
 		`ALTER TABLE cart_items DROP CONSTRAINT IF EXISTS cart_items_unique_with_services;`,
 		`ALTER TABLE cart_items ADD CONSTRAINT cart_items_unique_with_services UNIQUE (cart_session_id, product_id, variant_id, size_id, services_hash);`,
 		`CREATE INDEX IF NOT EXISTS idx_cart_items_services_hash ON cart_items(services_hash);`,
+
+		// Add stock management columns to sizes table
+		`ALTER TABLE sizes ADD COLUMN IF NOT EXISTS use_stock BOOLEAN NOT NULL DEFAULT FALSE;`,
+		`ALTER TABLE sizes ADD COLUMN IF NOT EXISTS stock_quantity INTEGER NOT NULL DEFAULT 0;`,
+		`ALTER TABLE sizes ADD COLUMN IF NOT EXISTS reserved_quantity INTEGER NOT NULL DEFAULT 0;`,
+		`UPDATE sizes SET use_stock = FALSE, stock_quantity = 0, reserved_quantity = 0 WHERE use_stock IS NULL;`,
+		`CREATE INDEX IF NOT EXISTS idx_sizes_use_stock ON sizes(use_stock);`,
+		`CREATE INDEX IF NOT EXISTS idx_sizes_stock_quantity ON sizes(stock_quantity);`,
 	}
 
 	for i, migration := range migrations {

@@ -20,6 +20,7 @@ type CartHandler struct {
 	variantQueries  *database.ProductVariantQueries
 	sizeQueries     *database.SizeQueries
 	serviceQueries  *database.AdditionalServiceQueries
+	stockQueries    *database.StockQueries
 }
 
 // NewCartHandler creates a new cart handler
@@ -31,6 +32,7 @@ func NewCartHandler(db *sql.DB) *CartHandler {
 		variantQueries:  database.NewProductVariantQueries(db),
 		sizeQueries:     database.NewSizeQueries(db),
 		serviceQueries:  database.NewAdditionalServiceQueries(db),
+		stockQueries:    database.NewStockQueries(db),
 	}
 }
 
@@ -129,6 +131,26 @@ func (h *CartHandler) AddToCart(c *gin.Context) {
 		return
 	}
 
+	// Check stock availability
+	available, availableStock, err := h.stockQueries.CheckStockAvailability(req.SizeID, req.Quantity)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check stock availability", "details": err.Error()})
+		return
+	}
+	
+	if !available {
+		if availableStock == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "This size is out of stock"})
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Insufficient stock available", 
+				"available_stock": availableStock,
+				"requested_quantity": req.Quantity,
+			})
+		}
+		return
+	}
+
 	// Validate additional services exist
 	var totalServicePrice float64
 	for _, serviceID := range req.AdditionalServiceIDs {
@@ -202,16 +224,36 @@ func (h *CartHandler) UpdateCartItem(c *gin.Context) {
 		return
 	}
 
-	found := false
+	var currentItem *models.CartItemResponse
 	for _, item := range items {
 		if item.ID == cartItemID {
-			found = true
+			currentItem = &item
 			break
 		}
 	}
 
-	if !found {
+	if currentItem == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Cart item not found"})
+		return
+	}
+
+	// Check stock availability for the new quantity
+	available, availableStock, err := h.stockQueries.CheckStockAvailability(currentItem.SizeID, req.Quantity)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check stock availability", "details": err.Error()})
+		return
+	}
+	
+	if !available {
+		if availableStock == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "This size is out of stock"})
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Insufficient stock available", 
+				"available_stock": availableStock,
+				"requested_quantity": req.Quantity,
+			})
+		}
 		return
 	}
 

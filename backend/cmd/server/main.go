@@ -59,7 +59,8 @@ func main() {
 	// Initialize order handler
 	orderQueries := database.NewOrderQueries(db)
 	cartQueries := database.NewCartQueries(db)
-	orderHandler := handlers.NewOrderHandler(orderQueries, cartQueries)
+	stockQueries := database.NewStockQueries(db)
+	orderHandler := handlers.NewOrderHandler(orderQueries, cartQueries, stockQueries)
 
 	// Public routes
 	public := r.Group("/api")

@@ -322,62 +322,74 @@ type ProductListResponse struct {
 }
 
 type Size struct {
-	ID        int       `json:"id"`
-	Name      string    `json:"name"`
-	ProductID int       `json:"product_id"`
-	BasePrice float64   `json:"base_price"`
-	A         float64   `json:"a"`
-	B         float64   `json:"b"`
-	C         float64   `json:"c"`
-	D         float64   `json:"d"`
-	E         float64   `json:"e"`
-	F         float64   `json:"f"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID               int       `json:"id"`
+	Name             string    `json:"name"`
+	ProductID        int       `json:"product_id"`
+	BasePrice        float64   `json:"base_price"`
+	A                float64   `json:"a"`
+	B                float64   `json:"b"`
+	C                float64   `json:"c"`
+	D                float64   `json:"d"`
+	E                float64   `json:"e"`
+	F                float64   `json:"f"`
+	UseStock         bool      `json:"use_stock"`
+	StockQuantity    int       `json:"stock_quantity"`
+	ReservedQuantity int       `json:"reserved_quantity"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 type SizeWithProduct struct {
-	ID        int             `json:"id"`
-	Name      string          `json:"name"`
-	ProductID int             `json:"product_id"`
-	BasePrice float64         `json:"base_price"`
-	A         float64         `json:"a"`
-	B         float64         `json:"b"`
-	C         float64         `json:"c"`
-	D         float64         `json:"d"`
-	E         float64         `json:"e"`
-	F         float64         `json:"f"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
-	Product   ProductResponse `json:"product"`
+	ID               int             `json:"id"`
+	Name             string          `json:"name"`
+	ProductID        int             `json:"product_id"`
+	BasePrice        float64         `json:"base_price"`
+	A                float64         `json:"a"`
+	B                float64         `json:"b"`
+	C                float64         `json:"c"`
+	D                float64         `json:"d"`
+	E                float64         `json:"e"`
+	F                float64         `json:"f"`
+	UseStock         bool            `json:"use_stock"`
+	StockQuantity    int             `json:"stock_quantity"`
+	ReservedQuantity int             `json:"reserved_quantity"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
+	Product          ProductResponse `json:"product"`
 }
 
 type SizeRequest struct {
-	Name      string  `json:"name" binding:"required,min=1,max=256"`
-	ProductID int     `json:"product_id" binding:"required"`
-	BasePrice float64 `json:"base_price" binding:"required,min=0"`
-	A         float64 `json:"a" binding:"required,min=0"`
-	B         float64 `json:"b" binding:"required,min=0"`
-	C         float64 `json:"c" binding:"required,min=0"`
-	D         float64 `json:"d" binding:"required,min=0"`
-	E         float64 `json:"e" binding:"required,min=0"`
-	F         float64 `json:"f" binding:"required,min=0"`
+	Name          string  `json:"name" binding:"required,min=1,max=256"`
+	ProductID     int     `json:"product_id" binding:"required"`
+	BasePrice     float64 `json:"base_price" binding:"required,min=0"`
+	A             float64 `json:"a" binding:"required,min=0"`
+	B             float64 `json:"b" binding:"required,min=0"`
+	C             float64 `json:"c" binding:"required,min=0"`
+	D             float64 `json:"d" binding:"required,min=0"`
+	E             float64 `json:"e" binding:"required,min=0"`
+	F             float64 `json:"f" binding:"required,min=0"`
+	UseStock      bool    `json:"use_stock"`
+	StockQuantity int     `json:"stock_quantity" binding:"min=0"`
 }
 
 type SizeResponse struct {
-	ID        int             `json:"id"`
-	Name      string          `json:"name"`
-	ProductID int             `json:"product_id"`
-	BasePrice float64         `json:"base_price"`
-	A         float64         `json:"a"`
-	B         float64         `json:"b"`
-	C         float64         `json:"c"`
-	D         float64         `json:"d"`
-	E         float64         `json:"e"`
-	F         float64         `json:"f"`
-	CreatedAt string          `json:"created_at"`
-	UpdatedAt string          `json:"updated_at"`
-	Product   ProductResponse `json:"product"`
+	ID               int             `json:"id"`
+	Name             string          `json:"name"`
+	ProductID        int             `json:"product_id"`
+	BasePrice        float64         `json:"base_price"`
+	A                float64         `json:"a"`
+	B                float64         `json:"b"`
+	C                float64         `json:"c"`
+	D                float64         `json:"d"`
+	E                float64         `json:"e"`
+	F                float64         `json:"f"`
+	UseStock         bool            `json:"use_stock"`
+	StockQuantity    int             `json:"stock_quantity"`
+	ReservedQuantity int             `json:"reserved_quantity"`
+	AvailableStock   int             `json:"available_stock"`
+	CreatedAt        string          `json:"created_at"`
+	UpdatedAt        string          `json:"updated_at"`
+	Product          ProductResponse `json:"product"`
 }
 
 type SizeListResponse struct {

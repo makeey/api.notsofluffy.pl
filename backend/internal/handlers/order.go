@@ -13,12 +13,14 @@ import (
 type OrderHandler struct {
 	orderQueries *database.OrderQueries
 	cartQueries  *database.CartQueries
+	stockQueries *database.StockQueries
 }
 
-func NewOrderHandler(orderQueries *database.OrderQueries, cartQueries *database.CartQueries) *OrderHandler {
+func NewOrderHandler(orderQueries *database.OrderQueries, cartQueries *database.CartQueries, stockQueries *database.StockQueries) *OrderHandler {
 	return &OrderHandler{
 		orderQueries: orderQueries,
 		cartQueries:  cartQueries,
+		stockQueries: stockQueries,
 	}
 }
 
@@ -131,6 +133,51 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		SameAsShipping: req.SameAsShipping,
 	}
 
+	// Reserve stock for all items first
+	var stockReservations []struct {
+		SizeID   int
+		Quantity int
+	}
+	
+	for _, cartItem := range cart.Items {
+		// Check and reserve stock
+		available, availableStock, err := h.stockQueries.CheckStockAvailability(cartItem.SizeID, cartItem.Quantity)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check stock availability", "details": err.Error()})
+			return
+		}
+		
+		if !available {
+			if availableStock == 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "One or more items are out of stock", "size_id": cartItem.SizeID})
+			} else {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": "Insufficient stock for one or more items",
+					"size_id": cartItem.SizeID,
+					"available_stock": availableStock,
+					"requested_quantity": cartItem.Quantity,
+				})
+			}
+			return
+		}
+		
+		// Reserve stock
+		err = h.stockQueries.ReserveStock(cartItem.SizeID, cartItem.Quantity)
+		if err != nil {
+			// Release any previously reserved stock
+			for _, reservation := range stockReservations {
+				h.stockQueries.ReleaseStock(reservation.SizeID, reservation.Quantity)
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reserve stock", "details": err.Error()})
+			return
+		}
+		
+		stockReservations = append(stockReservations, struct {
+			SizeID   int
+			Quantity int
+		}{cartItem.SizeID, cartItem.Quantity})
+	}
+
 	// Convert cart items to order items
 	var orderItems []models.OrderItem
 	for _, cartItem := range cart.Items {
@@ -176,8 +223,22 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 	// Create order in database
 	orderResponse, err := h.orderQueries.CreateOrder(order, shippingAddr, billingAddr, orderItems)
 	if err != nil {
+		// Release reserved stock if order creation fails
+		for _, reservation := range stockReservations {
+			h.stockQueries.ReleaseStock(reservation.SizeID, reservation.Quantity)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create order"})
 		return
+	}
+
+	// Decrement stock for all items after successful order creation
+	for _, reservation := range stockReservations {
+		err = h.stockQueries.DecrementStock(reservation.SizeID, reservation.Quantity)
+		if err != nil {
+			// Log error but don't fail the request since order was created
+			// TODO: implement proper logging
+			// In a production system, you might want to track this for inventory correction
+		}
 	}
 
 	// Clear cart after successful order
