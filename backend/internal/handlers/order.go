@@ -91,6 +91,7 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		UserID:        userID,
 		SessionID:     &sessionIDStr,
 		Email:         req.Email,
+		Phone:         req.Phone,
 		Status:        models.OrderStatusPending,
 		TotalAmount:   totalAmount,
 		Subtotal:      subtotal,

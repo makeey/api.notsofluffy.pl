@@ -27,6 +27,7 @@ type Order struct {
 	UserID        *int      `json:"user_id,omitempty"`
 	SessionID     *string   `json:"session_id,omitempty"`
 	Email         string    `json:"email"`
+	Phone         string    `json:"phone"`
 	Status        string    `json:"status"`
 	TotalAmount   float64   `json:"total_amount"`
 	Subtotal      float64   `json:"subtotal"`
@@ -52,7 +53,7 @@ type ShippingAddress struct {
 	StateProvince string   `json:"state_province"`
 	PostalCode   string    `json:"postal_code"`
 	Country      string    `json:"country"`
-	Phone        *string   `json:"phone,omitempty"`
+	Phone        string    `json:"phone"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -69,7 +70,7 @@ type BillingAddress struct {
 	StateProvince   string    `json:"state_province"`
 	PostalCode      string    `json:"postal_code"`
 	Country         string    `json:"country"`
-	Phone           *string   `json:"phone,omitempty"`
+	Phone           string    `json:"phone"`
 	SameAsShipping  bool      `json:"same_as_shipping"`
 	CreatedAt       time.Time `json:"created_at"`
 }
@@ -119,12 +120,13 @@ type AddressRequest struct {
 	StateProvince string  `json:"state_province" binding:"required"`
 	PostalCode    string  `json:"postal_code" binding:"required"`
 	Country       string  `json:"country" binding:"required"`
-	Phone         *string `json:"phone,omitempty"`
+	Phone         string  `json:"phone" binding:"required"`
 }
 
 // OrderRequest represents order creation request
 type OrderRequest struct {
 	Email           string         `json:"email" binding:"required,email"`
+	Phone           string         `json:"phone" binding:"required"`
 	ShippingAddress AddressRequest `json:"shipping_address" binding:"required"`
 	BillingAddress  AddressRequest `json:"billing_address" binding:"required"`
 	SameAsShipping  bool           `json:"same_as_shipping"`
@@ -138,6 +140,7 @@ type OrderResponse struct {
 	UserID          *int                    `json:"user_id,omitempty"`
 	SessionID       *string                 `json:"session_id,omitempty"`
 	Email           string                  `json:"email"`
+	Phone           string                  `json:"phone"`
 	Status          string                  `json:"status"`
 	TotalAmount     float64                 `json:"total_amount"`
 	Subtotal        float64                 `json:"subtotal"`

@@ -339,6 +339,11 @@ func Migrate(db *sql.DB) error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_order_item_services_order_item_id ON order_item_services(order_item_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_order_item_services_service_id ON order_item_services(service_id);`,
+		
+		// Add phone column to orders table if it doesn't exist
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS phone VARCHAR(50) NOT NULL DEFAULT '';`,
+		`UPDATE orders SET phone = '' WHERE phone IS NULL;`,
+		`CREATE INDEX IF NOT EXISTS idx_orders_phone ON orders(phone);`,
 	}
 
 	for i, migration := range migrations {

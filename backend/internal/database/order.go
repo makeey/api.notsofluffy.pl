@@ -27,11 +27,11 @@ func (q *OrderQueries) CreateOrder(order *models.Order, shippingAddr *models.Shi
 
 	// Insert order
 	orderQuery := `
-		INSERT INTO orders (user_id, session_id, email, status, total_amount, subtotal, shipping_cost, tax_amount, payment_method, payment_status, notes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO orders (user_id, session_id, email, phone, status, total_amount, subtotal, shipping_cost, tax_amount, payment_method, payment_status, notes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_at, updated_at`
 	
-	err = tx.QueryRow(orderQuery, order.UserID, order.SessionID, order.Email, order.Status, order.TotalAmount, order.Subtotal, order.ShippingCost, order.TaxAmount, order.PaymentMethod, order.PaymentStatus, order.Notes).Scan(&order.ID, &order.CreatedAt, &order.UpdatedAt)
+	err = tx.QueryRow(orderQuery, order.UserID, order.SessionID, order.Email, order.Phone, order.Status, order.TotalAmount, order.Subtotal, order.ShippingCost, order.TaxAmount, order.PaymentMethod, order.PaymentStatus, order.Notes).Scan(&order.ID, &order.CreatedAt, &order.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert order: %w", err)
 	}
@@ -131,12 +131,12 @@ func (q *OrderQueries) CreateOrder(order *models.Order, shippingAddr *models.Shi
 func (q *OrderQueries) GetOrderByID(id int) (*models.OrderResponse, error) {
 	// Get order
 	orderQuery := `
-		SELECT id, user_id, session_id, email, status, total_amount, subtotal, shipping_cost, tax_amount, payment_method, payment_status, notes, created_at, updated_at
+		SELECT id, user_id, session_id, email, phone, status, total_amount, subtotal, shipping_cost, tax_amount, payment_method, payment_status, notes, created_at, updated_at
 		FROM orders
 		WHERE id = $1`
 	
 	var order models.Order
-	err := q.db.QueryRow(orderQuery, id).Scan(&order.ID, &order.UserID, &order.SessionID, &order.Email, &order.Status, &order.TotalAmount, &order.Subtotal, &order.ShippingCost, &order.TaxAmount, &order.PaymentMethod, &order.PaymentStatus, &order.Notes, &order.CreatedAt, &order.UpdatedAt)
+	err := q.db.QueryRow(orderQuery, id).Scan(&order.ID, &order.UserID, &order.SessionID, &order.Email, &order.Phone, &order.Status, &order.TotalAmount, &order.Subtotal, &order.ShippingCost, &order.TaxAmount, &order.PaymentMethod, &order.PaymentStatus, &order.Notes, &order.CreatedAt, &order.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("order not found")
@@ -237,6 +237,7 @@ func (q *OrderQueries) GetOrderByID(id int) (*models.OrderResponse, error) {
 		UserID:          order.UserID,
 		SessionID:       order.SessionID,
 		Email:           order.Email,
+		Phone:           order.Phone,
 		Status:          order.Status,
 		TotalAmount:     order.TotalAmount,
 		Subtotal:        order.Subtotal,
@@ -294,7 +295,7 @@ func (q *OrderQueries) ListOrders(page, limit int, userID *int, email, status st
 
 	// Get orders
 	ordersQuery := fmt.Sprintf(`
-		SELECT id, user_id, session_id, email, status, total_amount, subtotal, shipping_cost, tax_amount, payment_method, payment_status, notes, created_at, updated_at
+		SELECT id, user_id, session_id, email, phone, status, total_amount, subtotal, shipping_cost, tax_amount, payment_method, payment_status, notes, created_at, updated_at
 		FROM orders
 		%s
 		ORDER BY created_at DESC
@@ -311,7 +312,7 @@ func (q *OrderQueries) ListOrders(page, limit int, userID *int, email, status st
 	var orders []models.OrderResponse
 	for rows.Next() {
 		var order models.Order
-		err := rows.Scan(&order.ID, &order.UserID, &order.SessionID, &order.Email, &order.Status, &order.TotalAmount, &order.Subtotal, &order.ShippingCost, &order.TaxAmount, &order.PaymentMethod, &order.PaymentStatus, &order.Notes, &order.CreatedAt, &order.UpdatedAt)
+		err := rows.Scan(&order.ID, &order.UserID, &order.SessionID, &order.Email, &order.Phone, &order.Status, &order.TotalAmount, &order.Subtotal, &order.ShippingCost, &order.TaxAmount, &order.PaymentMethod, &order.PaymentStatus, &order.Notes, &order.CreatedAt, &order.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan order: %w", err)
 		}
@@ -321,6 +322,7 @@ func (q *OrderQueries) ListOrders(page, limit int, userID *int, email, status st
 			UserID:        order.UserID,
 			SessionID:     order.SessionID,
 			Email:         order.Email,
+			Phone:         order.Phone,
 			Status:        order.Status,
 			TotalAmount:   order.TotalAmount,
 			Subtotal:      order.Subtotal,
