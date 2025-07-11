@@ -452,6 +452,158 @@ export function useCategories() {
 
 This CRUD implementation provides a robust, scalable foundation for the e-commerce application with strong typing, proper error handling, and security best practices throughout the stack.
 
+## Legacy Frontend Analysis (Django)
+
+The repository contains a legacy Django application with valuable frontend patterns and design system knowledge that informs the current Next.js implementation.
+
+### Legacy Technology Stack
+
+#### Frontend Technologies
+- **CSS Framework**: Tailwind CSS v3.4.0
+- **JavaScript Libraries**:
+  - Alpine.js v3.x (reactive UI framework)
+  - HTMX v2.0.3 (HTML over the wire)
+  - Flickity v2 (carousel/slider library)
+- **Tailwind Plugins**:
+  - @tailwindcss/forms v0.5.7
+  - @tailwindcss/typography v0.5.10
+  - @tailwindcss/aspect-ratio v0.4.2
+- **Build Tools**: PostCSS with Tailwind CLI
+
+#### Template Structure
+- **Base Layout**: `loyaout/base.html` (Django template inheritance)
+- **Component Structure**: Component-based templates in `components/` directory
+- **Template Inheritance**: Django's `{% extends %}` and `{% block %}` pattern
+
+### Design System & UI Patterns
+
+#### Color Scheme
+- **Primary**: Indigo (`indigo-600`, `indigo-500`)
+- **Neutral**: Gray scale (`gray-900` to `gray-50`)
+- **Success**: Green (`green-500`)
+- **Background**: `bg-gray-900`, `bg-white`
+
+#### Typography System
+- **Headers**: `text-3xl`, `text-4xl` with `font-bold tracking-tight`
+- **Body Text**: `text-sm`, `text-base`
+- **Muted Text**: `text-gray-500`, `text-gray-600`
+
+#### Spacing Patterns
+- **Container Padding**: `px-4 sm:px-6 lg:px-8`
+- **Section Padding**: `py-24 sm:py-32`
+- **Max Width**: `max-w-7xl mx-auto`
+
+#### Component Styling Patterns
+
+**Buttons**:
+- Primary: `bg-indigo-600 hover:bg-indigo-700 text-white`
+- Secondary: `bg-white hover:bg-gray-100 text-gray-900`
+- Common: `rounded-md px-8 py-3`
+
+**Forms**:
+- Using @tailwindcss/forms plugin
+- Checkboxes: `rounded border-gray-300 text-indigo-600`
+- Focus states: `focus:ring-indigo-500`
+
+**Cards**:
+- Structure: `border border-gray-200 bg-white rounded-lg`
+- Hover states for interactive elements
+
+### Layout Patterns
+
+#### Navigation Structure
+- **Desktop**: Flyout menus using Alpine.js
+- **Mobile**: Off-canvas drawer pattern
+- **Logo Placement**: Varies between mobile/desktop layouts
+
+#### Hero Section
+- **Full-width Hero**: Background image with opacity overlay
+- **Conditional Display**: Based on `include_main_hero_in_header`
+- **Gradient Overlays**: On category showcase images
+
+#### Product Layout
+- **Grid System**: `grid-cols-1 sm:grid-cols-2 xl:grid-cols-3`
+- **Card-based Display**: Product cards with hover effects
+- **Image Gallery**: Flickity carousel with thumbnail navigation
+
+### Interactive Patterns (Alpine.js)
+
+#### Component State Management
+- **State**: `x-data` for component state
+- **Events**: `@click`, `@change` for event handling
+- **Conditional**: `x-show`, `x-if` for conditional rendering
+- **Dynamic Classes**: `:class` for dynamic styling
+
+#### Key Interactive Components
+1. **Product Variant Selection**:
+   - Color/size selection with visual feedback
+   - URL parameter management
+   - Dynamic price calculation
+
+2. **Filter System**:
+   - Checkbox-based filtering
+   - URL parameter persistence
+   - Alpine.js state management
+
+3. **Shopping Cart**:
+   - Multi-step product configuration
+   - Order summary layout
+   - Dynamic quantity updates
+
+### Responsive Design Patterns
+
+#### Breakpoint Strategy
+- **Mobile-first**: Approach with `sm:`, `lg:`, `xl:` breakpoints
+- **Adaptive Layouts**: Navigation and grid systems
+- **Conditional Display**: Hidden/visible elements based on screen size
+
+#### Grid Systems
+- **Product Grids**: Responsive columns with consistent spacing
+- **Category Showcase**: Adaptive grid layouts
+- **Image Galleries**: Responsive carousel implementations
+
+### UI/UX Patterns for Migration
+
+#### E-commerce Specific
+- **Category Showcase**: Grid layout with gradient overlays
+- **Product Cards**: Price display, hover effects, image optimization
+- **Shopping Cart**: Order summary, quantity controls, price calculation
+- **Product Configuration**: Multi-step variant selection
+
+#### Visual Effects
+- **Backdrop Blur**: `backdrop-blur` effects
+- **Gradient Overlays**: On images and hero sections
+- **Hover States**: Opacity changes and transformations
+- **Focus Indicators**: Ring focus states with proper colors
+
+#### Polish Language Support
+The legacy site includes Polish localization:
+- "Ketegorii" (Categories)
+- "Rozmiary" (Sizes)
+- "Dodatkowe usługi" (Additional services)
+
+### Migration Guidelines
+
+#### Component Architecture
+- **Template to Component**: Convert Django templates to React components
+- **State Management**: Replace Alpine.js with React state/Context API
+- **Styling**: Continue using Tailwind CSS (upgrade to v4)
+- **Interactive Elements**: Replace HTMX with Next.js API routes
+
+#### Design System Preservation
+- **Color Scheme**: Maintain indigo primary color system
+- **Typography**: Preserve font weights and sizing patterns
+- **Spacing**: Continue using consistent padding/margin patterns
+- **Component Styles**: Adapt button, form, and card styling patterns
+
+#### Performance Considerations
+- **Image Optimization**: Use Next.js Image component instead of standard img tags
+- **Routing**: Convert Django URL patterns to Next.js file-based routing
+- **Forms**: Implement React-based form handling with validation
+- **Carousels**: Use modern React carousel libraries instead of Flickity
+
+This legacy analysis provides the foundation for maintaining design consistency while modernizing the frontend architecture with Next.js and React.
+
 ## Environment Variables
 
 ### Frontend (.env.local)

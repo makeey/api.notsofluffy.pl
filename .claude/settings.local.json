@@ -5,7 +5,10 @@
       "Bash(go mod:*)",
       "Bash(npm run lint)",
       "Bash(grep:*)",
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "Bash(cp:*)",
+      "Bash(curl:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": []
   }
