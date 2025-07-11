@@ -28,6 +28,7 @@ type AdminHandler struct {
 	additionalServiceQueries *database.AdditionalServiceQueries
 	productQueries           *database.ProductQueries
 	sizeQueries              *database.SizeQueries
+	productVariantQueries    *database.ProductVariantQueries
 }
 
 func NewAdminHandler(db *sql.DB) *AdminHandler {
@@ -41,6 +42,7 @@ func NewAdminHandler(db *sql.DB) *AdminHandler {
 		additionalServiceQueries: database.NewAdditionalServiceQueries(db),
 		productQueries:           database.NewProductQueries(db),
 		sizeQueries:              database.NewSizeQueries(db),
+		productVariantQueries:    database.NewProductVariantQueries(db),
 	}
 }
 
@@ -1712,4 +1714,208 @@ func (h *AdminHandler) validateProductExists(productID int) bool {
 	var exists int
 	err := h.db.QueryRow(query, productID).Scan(&exists)
 	return err == nil
+}
+
+func (h *AdminHandler) validateColorExists(colorID int) bool {
+	query := "SELECT 1 FROM colors WHERE id = $1"
+	var exists int
+	err := h.db.QueryRow(query, colorID).Scan(&exists)
+	return err == nil
+}
+
+// ProductVariant Management
+
+func (h *AdminHandler) ListProductVariants(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	search := c.Query("search")
+	
+	var productID *int
+	if productIDStr := c.Query("product_id"); productIDStr != "" {
+		if pid, err := strconv.Atoi(productIDStr); err == nil {
+			productID = &pid
+		}
+	}
+	
+	var colorID *int
+	if colorIDStr := c.Query("color_id"); colorIDStr != "" {
+		if cid, err := strconv.Atoi(colorIDStr); err == nil {
+			colorID = &cid
+		}
+	}
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	variants, total, err := h.productVariantQueries.ListProductVariants(page, limit, search, productID, colorID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.ProductVariantListResponse{
+		ProductVariants: variants,
+		Total:           total,
+		Page:            page,
+		Limit:           limit,
+	})
+}
+
+func (h *AdminHandler) CreateProductVariant(c *gin.Context) {
+	var req models.ProductVariantRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate product exists
+	if !h.validateProductExists(req.ProductID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Product not found"})
+		return
+	}
+
+	// Validate color exists
+	if !h.validateColorExists(req.ColorID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Color not found"})
+		return
+	}
+
+	// Validate images exist
+	if len(req.ImageIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "At least one image is required"})
+		return
+	}
+
+	variant := &models.ProductVariant{
+		ProductID: req.ProductID,
+		Name:      req.Name,
+		ColorID:   req.ColorID,
+		IsDefault: req.IsDefault,
+	}
+
+	if err := h.productVariantQueries.CreateProductVariant(variant); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Associate images with variant
+	if err := h.productVariantQueries.UpdateProductVariantImages(variant.ID, req.ImageIDs); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to associate images"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "Product variant created successfully", "id": variant.ID})
+}
+
+func (h *AdminHandler) GetProductVariant(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product variant ID"})
+		return
+	}
+
+	variant, err := h.productVariantQueries.GetProductVariantByID(id)
+	if err != nil {
+		if err.Error() == "product variant not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product variant not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	response := models.ProductVariantResponse{
+		ID:        variant.ID,
+		ProductID: variant.ProductID,
+		Name:      variant.Name,
+		ColorID:   variant.ColorID,
+		IsDefault: variant.IsDefault,
+		CreatedAt: variant.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: variant.UpdatedAt.Format(time.RFC3339),
+		Product:   variant.Product,
+		Color:     variant.Color,
+		Images:    variant.Images,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) UpdateProductVariant(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product variant ID"})
+		return
+	}
+
+	var req models.ProductVariantRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate product exists
+	if !h.validateProductExists(req.ProductID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Product not found"})
+		return
+	}
+
+	// Validate color exists
+	if !h.validateColorExists(req.ColorID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Color not found"})
+		return
+	}
+
+	// Validate images exist
+	if len(req.ImageIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "At least one image is required"})
+		return
+	}
+
+	variant := &models.ProductVariant{
+		ID:        id,
+		ProductID: req.ProductID,
+		Name:      req.Name,
+		ColorID:   req.ColorID,
+		IsDefault: req.IsDefault,
+	}
+
+	if err := h.productVariantQueries.UpdateProductVariant(id, variant); err != nil {
+		if err.Error() == "product variant not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product variant not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Update images associated with variant
+	if err := h.productVariantQueries.UpdateProductVariantImages(id, req.ImageIDs); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update images"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Product variant updated successfully"})
+}
+
+func (h *AdminHandler) DeleteProductVariant(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product variant ID"})
+		return
+	}
+
+	if err := h.productVariantQueries.DeleteProductVariant(id); err != nil {
+		if err.Error() == "product variant not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product variant not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Product variant deleted successfully"})
 }

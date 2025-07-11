@@ -384,3 +384,54 @@ type SizeListResponse struct {
 	Page  int            `json:"page"`
 	Limit int            `json:"limit"`
 }
+
+type ProductVariant struct {
+	ID        int       `json:"id"`
+	ProductID int       `json:"product_id"`
+	Name      string    `json:"name"`
+	ColorID   int       `json:"color_id"`
+	IsDefault bool      `json:"is_default"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type ProductVariantWithRelations struct {
+	ID        int             `json:"id"`
+	ProductID int             `json:"product_id"`
+	Name      string          `json:"name"`
+	ColorID   int             `json:"color_id"`
+	IsDefault bool            `json:"is_default"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
+	Product   ProductResponse `json:"product"`
+	Color     ColorResponse   `json:"color"`
+	Images    []ImageResponse `json:"images"`
+}
+
+type ProductVariantRequest struct {
+	ProductID int    `json:"product_id" binding:"required"`
+	Name      string `json:"name" binding:"required,min=1,max=256"`
+	ColorID   int    `json:"color_id" binding:"required"`
+	IsDefault bool   `json:"is_default"`
+	ImageIDs  []int  `json:"image_ids" binding:"required,min=1"`
+}
+
+type ProductVariantResponse struct {
+	ID        int             `json:"id"`
+	ProductID int             `json:"product_id"`
+	Name      string          `json:"name"`
+	ColorID   int             `json:"color_id"`
+	IsDefault bool            `json:"is_default"`
+	CreatedAt string          `json:"created_at"`
+	UpdatedAt string          `json:"updated_at"`
+	Product   ProductResponse `json:"product"`
+	Color     ColorResponse   `json:"color"`
+	Images    []ImageResponse `json:"images"`
+}
+
+type ProductVariantListResponse struct {
+	ProductVariants []ProductVariantResponse `json:"product_variants"`
+	Total           int                      `json:"total"`
+	Page            int                      `json:"page"`
+	Limit           int                      `json:"limit"`
+}

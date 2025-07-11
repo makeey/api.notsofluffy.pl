@@ -164,6 +164,294 @@ The frontend development server uses Turbopack (`--turbopack` flag) for faster b
 ### Path Aliases
 - `@/*` maps to `./` (frontend root) for cleaner imports
 
+## CRUD Implementation Architecture
+
+This application implements a comprehensive CRUD (Create, Read, Update, Delete) system using a layered architecture pattern with raw SQL queries, strong typing, and consistent error handling across all entities.
+
+### Backend CRUD Pattern
+
+#### 1. Database Layer (Raw SQL Approach)
+The application uses **raw SQL queries** without an ORM, providing direct control over database operations:
+
+```go
+// Example from internal/database/queries.go
+func (q *Queries) GetCategories(ctx context.Context) ([]models.Category, error) {
+    query := `
+        SELECT c.id, c.name, c.image_id, c.is_active, c.created_at, c.updated_at,
+               i.filename, i.original_name
+        FROM categories c
+        LEFT JOIN images i ON c.image_id = i.id
+        ORDER BY c.name
+    `
+    // Implementation with prepared statements and proper error handling
+}
+```
+
+**Key Features:**
+- **Prepared Statements**: All queries use prepared statements for security
+- **Transaction Support**: Complex operations use database transactions
+- **Join Queries**: Efficient data retrieval with LEFT JOINs for related data
+- **Contextual Queries**: All queries accept context for timeout and cancellation
+- **SQL Injection Prevention**: Parameterized queries throughout
+
+#### 2. Model Layer (Strong Typing)
+Located in `internal/models/`, provides type definitions for all entities:
+
+```go
+// Example model structure
+type Category struct {
+    ID        int       `json:"id"`
+    Name      string    `json:"name"`
+    ImageID   *int      `json:"image_id"`
+    IsActive  bool      `json:"is_active"`
+    CreatedAt time.Time `json:"created_at"`
+    UpdatedAt time.Time `json:"updated_at"`
+    // Nested related data
+    Image     *Image    `json:"image,omitempty"`
+}
+
+// Request/Response models
+type CreateCategoryRequest struct {
+    Name     string `json:"name" binding:"required"`
+    ImageID  *int   `json:"image_id"`
+    IsActive bool   `json:"is_active"`
+}
+```
+
+**Key Features:**
+- **JSON Tags**: Proper serialization/deserialization
+- **Validation Tags**: Request validation with Gin binding
+- **Pointer Fields**: Optional fields use pointers for null handling
+- **Nested Structures**: Related data embedded in responses
+- **Request/Response Separation**: Dedicated types for API operations
+
+#### 3. Handler Layer (HTTP Controllers)
+Located in `internal/handlers/`, implements HTTP request handling:
+
+```go
+// Standard CRUD handler pattern
+func (h *Handler) GetCategories(c *gin.Context) {
+    categories, err := h.queries.GetCategories(c.Request.Context())
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch categories"})
+        return
+    }
+    c.JSON(http.StatusOK, categories)
+}
+
+func (h *Handler) CreateCategory(c *gin.Context) {
+    var req models.CreateCategoryRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    
+    category, err := h.queries.CreateCategory(c.Request.Context(), req)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create category"})
+        return
+    }
+    
+    c.JSON(http.StatusCreated, category)
+}
+```
+
+**Key Features:**
+- **Consistent Error Handling**: Standardized error responses
+- **Request Validation**: Automatic validation with Gin binding
+- **Context Propagation**: Request context passed to database layer
+- **HTTP Status Codes**: Proper HTTP semantics
+- **JSON Responses**: Consistent API response format
+
+#### 4. Middleware Layer (Authentication & Authorization)
+Located in `internal/middleware/`, provides cross-cutting concerns:
+
+```go
+// Authentication middleware
+func AuthMiddleware() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        token := extractToken(c)
+        user, err := validateToken(token)
+        if err != nil {
+            c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+            c.Abort()
+            return
+        }
+        c.Set("user", user)
+        c.Next()
+    }
+}
+
+// Role-based authorization
+func RequireRole(role string) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        user := c.MustGet("user").(*models.User)
+        if user.Role != role {
+            c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+            c.Abort()
+            return
+        }
+        c.Next()
+    }
+}
+```
+
+### Frontend CRUD Pattern
+
+#### 1. API Client Layer (Type-Safe HTTP Client)
+Located in `lib/api.ts`, provides centralized API communication:
+
+```typescript
+// Type-safe API client with automatic token handling
+class ApiClient {
+    private async request<T>(
+        endpoint: string,
+        options: RequestInit = {}
+    ): Promise<T> {
+        const token = this.getToken();
+        const response = await fetch(`${this.baseUrl}${endpoint}`, {
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': token ? `Bearer ${token}` : '',
+                ...options.headers,
+            },
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        return response.json();
+    }
+    
+    // CRUD operations
+    async getCategories(): Promise<Category[]> {
+        return this.request<Category[]>('/api/admin/categories');
+    }
+    
+    async createCategory(data: CreateCategoryRequest): Promise<Category> {
+        return this.request<Category>('/api/admin/categories', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+}
+```
+
+**Key Features:**
+- **TypeScript Types**: Full type safety for requests and responses
+- **Automatic Authentication**: Token handling for all requests
+- **Error Handling**: Centralized error handling with proper HTTP status codes
+- **Request Interceptors**: Automatic JSON serialization
+- **Response Interceptors**: Automatic JSON deserialization
+
+#### 2. React Hooks (Data Management)
+Custom hooks for CRUD operations:
+
+```typescript
+// Custom hooks for data fetching and mutations
+export function useCategories() {
+    const [categories, setCategories] = useState<Category[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    
+    const fetchCategories = async () => {
+        setLoading(true);
+        try {
+            const data = await apiClient.getCategories();
+            setCategories(data);
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    const createCategory = async (categoryData: CreateCategoryRequest) => {
+        try {
+            const newCategory = await apiClient.createCategory(categoryData);
+            setCategories(prev => [...prev, newCategory]);
+            return newCategory;
+        } catch (err) {
+            setError(err.message);
+            throw err;
+        }
+    };
+    
+    return { categories, loading, error, fetchCategories, createCategory };
+}
+```
+
+### Entity-Specific CRUD Patterns
+
+#### 1. Simple Entities (Materials, Categories)
+- **Single Table**: Direct CRUD operations
+- **Basic Relations**: Optional foreign keys (e.g., category image)
+- **Validation**: Name uniqueness, required fields
+
+#### 2. Complex Entities (Products)
+- **Multiple Relations**: Foreign keys to materials, categories, images
+- **Junction Tables**: Many-to-many relationships (product_images, product_services)
+- **Transactional Updates**: Atomic operations for related data
+
+#### 3. File Upload Entities (Images)
+- **Multipart Upload**: Special handling for file uploads
+- **UUID Filenames**: Secure filename generation
+- **Metadata Storage**: Original filename, uploader tracking
+- **Static File Serving**: Direct file serving with proper headers
+
+#### 4. Junction Table Management
+- **Atomic Operations**: Transaction-based updates for many-to-many relationships
+- **Cascade Operations**: Proper cleanup when parent entities are deleted
+- **Batch Operations**: Efficient bulk updates for large datasets
+
+### Common CRUD Patterns
+
+#### 1. Validation Strategy
+- **Backend Validation**: Gin binding with struct tags
+- **Frontend Validation**: TypeScript types + runtime validation
+- **Database Constraints**: Foreign keys, unique constraints, check constraints
+
+#### 2. Error Handling
+- **Consistent Error Format**: Standardized error responses
+- **HTTP Status Codes**: Proper semantic HTTP codes
+- **Error Propagation**: Context-aware error handling
+
+#### 3. Pagination
+- **Offset-based Pagination**: Standard limit/offset pattern
+- **Metadata**: Total count, page info in responses
+- **Performance**: Indexed queries for large datasets
+
+#### 4. Soft Deletes vs Hard Deletes
+- **Hard Deletes**: Direct deletion for most entities
+- **Soft Deletes**: Boolean flags for categories (is_active)
+- **Cascade Rules**: Proper cleanup of related data
+
+#### 5. Optimistic Updates
+- **Frontend Optimism**: Immediate UI updates before API confirmation
+- **Error Recovery**: Rollback on API failures
+- **Conflict Resolution**: Proper handling of concurrent updates
+
+### Security Considerations
+
+#### 1. Authentication & Authorization
+- **JWT Tokens**: Stateless authentication
+- **Role-Based Access**: Admin-only CRUD operations
+- **Token Refresh**: Automatic token renewal
+
+#### 2. Data Validation
+- **Input Sanitization**: Proper input validation
+- **SQL Injection Prevention**: Parameterized queries
+- **File Upload Security**: Type validation, size limits
+
+#### 3. CORS & Security Headers
+- **CORS Configuration**: Proper cross-origin handling
+- **Security Headers**: Standard security headers
+- **Rate Limiting**: Protection against abuse
+
+This CRUD implementation provides a robust, scalable foundation for the e-commerce application with strong typing, proper error handling, and security best practices throughout the stack.
+
 ## Environment Variables
 
 ### Frontend (.env.local)

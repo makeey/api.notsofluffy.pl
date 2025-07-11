@@ -114,6 +114,13 @@ func main() {
 		admin.GET("/sizes/:id", adminHandler.GetSize)
 		admin.PUT("/sizes/:id", adminHandler.UpdateSize)
 		admin.DELETE("/sizes/:id", adminHandler.DeleteSize)
+
+		// Product Variant management
+		admin.GET("/product-variants", adminHandler.ListProductVariants)
+		admin.POST("/product-variants", adminHandler.CreateProductVariant)
+		admin.GET("/product-variants/:id", adminHandler.GetProductVariant)
+		admin.PUT("/product-variants/:id", adminHandler.UpdateProductVariant)
+		admin.DELETE("/product-variants/:id", adminHandler.DeleteProductVariant)
 	}
 
 	port := os.Getenv("PORT")

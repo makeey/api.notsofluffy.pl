@@ -174,6 +174,31 @@ func Migrate(db *sql.DB) error {
 		BEFORE UPDATE ON sizes
 		FOR EACH ROW
 		EXECUTE FUNCTION update_updated_at_column();`,
+		`CREATE TABLE IF NOT EXISTS product_variants (
+			id SERIAL PRIMARY KEY,
+			product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+			name VARCHAR(256) NOT NULL,
+			color_id INTEGER NOT NULL REFERENCES colors(id) ON DELETE CASCADE,
+			is_default BOOLEAN DEFAULT FALSE,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_product_variants_product_id ON product_variants(product_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_product_variants_color_id ON product_variants(color_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_product_variants_name ON product_variants(name);`,
+		`CREATE INDEX IF NOT EXISTS idx_product_variants_is_default ON product_variants(is_default);`,
+		`DROP TRIGGER IF EXISTS update_product_variants_updated_at ON product_variants;`,
+		`CREATE TRIGGER update_product_variants_updated_at
+		BEFORE UPDATE ON product_variants
+		FOR EACH ROW
+		EXECUTE FUNCTION update_updated_at_column();`,
+		`CREATE TABLE IF NOT EXISTS product_variant_images (
+			product_variant_id INTEGER NOT NULL REFERENCES product_variants(id) ON DELETE CASCADE,
+			image_id INTEGER NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+			PRIMARY KEY (product_variant_id, image_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_product_variant_images_variant_id ON product_variant_images(product_variant_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_product_variant_images_image_id ON product_variant_images(image_id);`,
 	}
 
 	for i, migration := range migrations {

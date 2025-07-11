@@ -2111,3 +2111,332 @@ func (q *SizeQueries) DeleteSize(id int) error {
 	
 	return nil
 }
+
+
+// ProductVariant queries
+type ProductVariantQueries struct {
+	db *sql.DB
+}
+
+func NewProductVariantQueries(db *sql.DB) *ProductVariantQueries {
+	return &ProductVariantQueries{db: db}
+}
+
+func (q *ProductVariantQueries) CreateProductVariant(variant *models.ProductVariant) error {
+	// If this variant is being set as default, clear other defaults for this product
+	if variant.IsDefault {
+		if err := q.ensureOnlyOneDefaultVariant(variant.ProductID, nil); err != nil {
+			return err
+		}
+	}
+	
+	query := `
+		INSERT INTO product_variants (product_id, name, color_id, is_default)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, created_at, updated_at
+	`
+	
+	err := q.db.QueryRow(query, variant.ProductID, variant.Name, variant.ColorID, variant.IsDefault).Scan(&variant.ID, &variant.CreatedAt, &variant.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("failed to create product variant: %w", err)
+	}
+	
+	return nil
+}
+
+func (q *ProductVariantQueries) GetProductVariantByID(id int) (*models.ProductVariantWithRelations, error) {
+	query := `
+		SELECT pv.id, pv.product_id, pv.name, pv.color_id, pv.is_default, pv.created_at, pv.updated_at,
+			   p.id, p.name, p.short_description, p.description, p.material_id, p.main_image_id, p.category_id, p.created_at, p.updated_at,
+			   c.id, c.name, c.custom, c.material_id, c.created_at, c.updated_at
+		FROM product_variants pv
+		JOIN products p ON pv.product_id = p.id
+		JOIN colors c ON pv.color_id = c.id
+		WHERE pv.id = $1
+	`
+	
+	var variant models.ProductVariantWithRelations
+	var product models.Product
+	var color models.Color
+	
+	err := q.db.QueryRow(query, id).Scan(
+		&variant.ID, &variant.ProductID, &variant.Name, &variant.ColorID, &variant.IsDefault, &variant.CreatedAt, &variant.UpdatedAt,
+		&product.ID, &product.Name, &product.ShortDescription, &product.Description, &product.MaterialID, &product.MainImageID, &product.CategoryID, &product.CreatedAt, &product.UpdatedAt,
+		&color.ID, &color.Name, &color.Custom, &color.MaterialID, &color.CreatedAt, &color.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("product variant not found")
+		}
+		return nil, fmt.Errorf("failed to get product variant: %w", err)
+	}
+	
+	// Convert to response format
+	variant.Product = models.ProductResponse{
+		ID:               product.ID,
+		Name:             product.Name,
+		ShortDescription: product.ShortDescription,
+		Description:      product.Description,
+		MaterialID:       product.MaterialID,
+		MainImageID:      product.MainImageID,
+		CategoryID:       product.CategoryID,
+		CreatedAt:        product.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:        product.UpdatedAt.Format(time.RFC3339),
+	}
+	
+	variant.Color = models.ColorResponse{
+		ID:         color.ID,
+		Name:       color.Name,
+		Custom:     color.Custom,
+		MaterialID: color.MaterialID,
+		CreatedAt:  color.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:  color.UpdatedAt.Format(time.RFC3339),
+	}
+	
+	// Get variant images
+	images, err := q.getProductVariantImages(variant.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get variant images: %w", err)
+	}
+	variant.Images = images
+	
+	return &variant, nil
+}
+
+func (q *ProductVariantQueries) UpdateProductVariantImages(variantID int, imageIDs []int) error {
+	tx, err := q.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	
+	// Delete existing associations
+	_, err = tx.Exec("DELETE FROM product_variant_images WHERE product_variant_id = $1", variantID)
+	if err != nil {
+		return fmt.Errorf("failed to delete existing image associations: %w", err)
+	}
+	
+	// Add new associations
+	for _, imageID := range imageIDs {
+		_, err = tx.Exec("INSERT INTO product_variant_images (product_variant_id, image_id) VALUES ($1, $2)", variantID, imageID)
+		if err != nil {
+			return fmt.Errorf("failed to add image association: %w", err)
+		}
+	}
+	
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	
+	return nil
+}
+
+
+func (q *ProductVariantQueries) ListProductVariants(page, limit int, search string, productID, colorID *int) ([]models.ProductVariantResponse, int, error) {
+	offset := (page - 1) * limit
+	
+	whereClause := "WHERE 1=1"
+	args := []interface{}{}
+	argIndex := 1
+	
+	if search != "" {
+		whereClause += fmt.Sprintf(" AND pv.name ILIKE $%d", argIndex)
+		args = append(args, "%"+search+"%")
+		argIndex++
+	}
+	
+	if productID != nil {
+		whereClause += fmt.Sprintf(" AND pv.product_id = $%d", argIndex)
+		args = append(args, *productID)
+		argIndex++
+	}
+	
+	if colorID != nil {
+		whereClause += fmt.Sprintf(" AND pv.color_id = $%d", argIndex)
+		args = append(args, *colorID)
+		argIndex++
+	}
+	
+	// Count total
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*) FROM product_variants pv
+		JOIN products p ON pv.product_id = p.id
+		JOIN colors c ON pv.color_id = c.id
+		%s
+	`, whereClause)
+	
+	var total int
+	err := q.db.QueryRow(countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count product variants: %w", err)
+	}
+	
+	// Get variants
+	query := fmt.Sprintf(`
+		SELECT pv.id, pv.product_id, pv.name, pv.color_id, pv.is_default, pv.created_at, pv.updated_at,
+			   p.id, p.name, p.short_description, p.description, p.material_id, p.main_image_id, p.category_id, p.created_at, p.updated_at,
+			   c.id, c.name, c.custom, c.material_id, c.created_at, c.updated_at
+		FROM product_variants pv
+		JOIN products p ON pv.product_id = p.id
+		JOIN colors c ON pv.color_id = c.id
+		%s
+		ORDER BY pv.product_id, pv.is_default DESC, pv.name
+		LIMIT $%d OFFSET $%d
+	`, whereClause, argIndex, argIndex+1)
+	
+	args = append(args, limit, offset)
+	
+	rows, err := q.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query product variants: %w", err)
+	}
+	defer rows.Close()
+	
+	var variants []models.ProductVariantResponse
+	for rows.Next() {
+		var variant models.ProductVariantResponse
+		var product models.Product
+		var color models.Color
+		
+		err := rows.Scan(
+			&variant.ID, &variant.ProductID, &variant.Name, &variant.ColorID, &variant.IsDefault, &variant.CreatedAt, &variant.UpdatedAt,
+			&product.ID, &product.Name, &product.ShortDescription, &product.Description, &product.MaterialID, &product.MainImageID, &product.CategoryID, &product.CreatedAt, &product.UpdatedAt,
+			&color.ID, &color.Name, &color.Custom, &color.MaterialID, &color.CreatedAt, &color.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan product variant: %w", err)
+		}
+		
+		variant.CreatedAt = variant.CreatedAt[:19] // Format timestamp
+		variant.UpdatedAt = variant.UpdatedAt[:19]
+		
+		variant.Product = models.ProductResponse{
+			ID:               product.ID,
+			Name:             product.Name,
+			ShortDescription: product.ShortDescription,
+			Description:      product.Description,
+			MaterialID:       product.MaterialID,
+			MainImageID:      product.MainImageID,
+			CategoryID:       product.CategoryID,
+			CreatedAt:        product.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:        product.UpdatedAt.Format(time.RFC3339),
+		}
+		
+		variant.Color = models.ColorResponse{
+			ID:         color.ID,
+			Name:       color.Name,
+			Custom:     color.Custom,
+			MaterialID: color.MaterialID,
+			CreatedAt:  color.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:  color.UpdatedAt.Format(time.RFC3339),
+		}
+		
+		// Get variant images
+		images, err := q.getProductVariantImages(variant.ID)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to get variant images: %w", err)
+		}
+		variant.Images = images
+		
+		variants = append(variants, variant)
+	}
+	
+	return variants, total, nil
+}
+
+func (q *ProductVariantQueries) UpdateProductVariant(id int, variant *models.ProductVariant) error {
+	// If this variant is being set as default, clear other defaults for this product
+	if variant.IsDefault {
+		if err := q.ensureOnlyOneDefaultVariant(variant.ProductID, &id); err != nil {
+			return err
+		}
+	}
+	
+	query := `
+		UPDATE product_variants 
+		SET product_id = $1, name = $2, color_id = $3, is_default = $4
+		WHERE id = $5
+		RETURNING updated_at
+	`
+	
+	err := q.db.QueryRow(query, variant.ProductID, variant.Name, variant.ColorID, variant.IsDefault, id).Scan(&variant.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("product variant not found")
+		}
+		return fmt.Errorf("failed to update product variant: %w", err)
+	}
+	
+	return nil
+}
+
+func (q *ProductVariantQueries) DeleteProductVariant(id int) error {
+	query := `DELETE FROM product_variants WHERE id = $1`
+	
+	result, err := q.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete product variant: %w", err)
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rowsAffected == 0 {
+		return fmt.Errorf("product variant not found")
+	}
+	
+	return nil
+}
+
+func (q *ProductVariantQueries) getProductVariantImages(variantID int) ([]models.ImageResponse, error) {
+	query := `
+		SELECT i.id, i.filename, i.original_name, i.path, i.size_bytes, i.mime_type, i.uploaded_by, i.created_at, i.updated_at
+		FROM product_variant_images pvi
+		JOIN images i ON pvi.image_id = i.id
+		WHERE pvi.product_variant_id = $1
+		ORDER BY i.id
+	`
+	
+	rows, err := q.db.Query(query, variantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query variant images: %w", err)
+	}
+	defer rows.Close()
+	
+	var images []models.ImageResponse
+	for rows.Next() {
+		var image models.ImageResponse
+		
+		err := rows.Scan(&image.ID, &image.Filename, &image.OriginalName, &image.Path, &image.SizeBytes, &image.MimeType, &image.UploadedBy, &image.CreatedAt, &image.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan image: %w", err)
+		}
+		
+		image.CreatedAt = image.CreatedAt[:19] // Format timestamp
+		image.UpdatedAt = image.UpdatedAt[:19]
+		
+		images = append(images, image)
+	}
+	
+	return images, nil
+}
+
+// Helper method to ensure only one default variant per product
+func (q *ProductVariantQueries) ensureOnlyOneDefaultVariant(productID int, excludeVariantID *int) error {
+	query := `UPDATE product_variants SET is_default = FALSE WHERE product_id = $1`
+	args := []interface{}{productID}
+	
+	if excludeVariantID != nil {
+		query += ` AND id != $2`
+		args = append(args, *excludeVariantID)
+	}
+	
+	_, err := q.db.Exec(query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to clear default variants: %w", err)
+	}
+	
+	return nil
+}
