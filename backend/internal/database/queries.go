@@ -2577,7 +2577,7 @@ func (q *ProductVariantQueries) ListProductVariants(page, limit int, search stri
 	query := fmt.Sprintf(`
 		SELECT pv.id, pv.product_id, pv.name, pv.color_id, pv.is_default, pv.created_at, pv.updated_at,
 			   p.id, p.name, p.short_description, p.description, p.material_id, p.main_image_id, p.category_id, p.created_at, p.updated_at,
-			   c.id, c.name, c.custom, c.material_id, c.created_at, c.updated_at
+			   c.id, c.name, c.image_id, c.custom, c.material_id, c.created_at, c.updated_at
 		FROM product_variants pv
 		JOIN products p ON pv.product_id = p.id
 		JOIN colors c ON pv.color_id = c.id
@@ -2603,7 +2603,7 @@ func (q *ProductVariantQueries) ListProductVariants(page, limit int, search stri
 		err := rows.Scan(
 			&variant.ID, &variant.ProductID, &variant.Name, &variant.ColorID, &variant.IsDefault, &variant.CreatedAt, &variant.UpdatedAt,
 			&product.ID, &product.Name, &product.ShortDescription, &product.Description, &product.MaterialID, &product.MainImageID, &product.CategoryID, &product.CreatedAt, &product.UpdatedAt,
-			&color.ID, &color.Name, &color.Custom, &color.MaterialID, &color.CreatedAt, &color.UpdatedAt,
+			&color.ID, &color.Name, &color.ImageID, &color.Custom, &color.MaterialID, &color.CreatedAt, &color.UpdatedAt,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to scan product variant: %w", err)
@@ -2627,10 +2627,30 @@ func (q *ProductVariantQueries) ListProductVariants(page, limit int, search stri
 		variant.Color = models.ColorResponse{
 			ID:         color.ID,
 			Name:       color.Name,
+			ImageID:    color.ImageID,
 			Custom:     color.Custom,
 			MaterialID: color.MaterialID,
 			CreatedAt:  color.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:  color.UpdatedAt.Format(time.RFC3339),
+		}
+		
+		// Get color image if exists
+		if color.ImageID != nil {
+			imageQueries := NewImageQueries(q.db)
+			colorImage, err := imageQueries.GetImageByID(*color.ImageID)
+			if err == nil {
+				variant.Color.Image = &models.ImageResponse{
+					ID:           colorImage.ID,
+					Filename:     colorImage.Filename,
+					OriginalName: colorImage.OriginalName,
+					Path:         colorImage.Path,
+					SizeBytes:    colorImage.SizeBytes,
+					MimeType:     colorImage.MimeType,
+					UploadedBy:   colorImage.UploadedBy,
+					CreatedAt:    colorImage.CreatedAt.Format(time.RFC3339),
+					UpdatedAt:    colorImage.UpdatedAt.Format(time.RFC3339),
+				}
+			}
 		}
 		
 		// Get variant images
