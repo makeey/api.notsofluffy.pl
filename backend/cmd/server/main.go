@@ -33,6 +33,9 @@ func main() {
 
 	r := gin.Default()
 
+	// Initialize session store
+	middleware.InitSessionStore(cfg.JWTSecret)
+
 	// CORS middleware
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000", "http://localhost:3001"},
@@ -41,6 +44,9 @@ func main() {
 		AllowCredentials: true,
 	}))
 
+	// Session middleware
+	r.Use(middleware.SessionMiddleware())
+
 	// Static file serving for uploads
 	r.Static("/uploads", "./uploads")
 
@@ -48,6 +54,7 @@ func main() {
 	authHandler := handlers.NewAuthHandler(db, cfg.JWTSecret)
 	adminHandler := handlers.NewAdminHandler(db)
 	publicHandler := handlers.NewPublicHandler(db)
+	cartHandler := handlers.NewCartHandler(db)
 
 	// Public routes
 	public := r.Group("/api")
@@ -55,6 +62,17 @@ func main() {
 		public.GET("/categories", publicHandler.GetActiveCategories)
 		public.GET("/products", publicHandler.GetPublicProducts)
 		public.GET("/products/:id", publicHandler.GetPublicProduct)
+	}
+
+	// Cart routes (public but require session)
+	cart := r.Group("/api/cart")
+	{
+		cart.GET("", cartHandler.GetCart)
+		cart.POST("/add", cartHandler.AddToCart)
+		cart.PUT("/update/:id", cartHandler.UpdateCartItem)
+		cart.DELETE("/remove/:id", cartHandler.RemoveFromCart)
+		cart.POST("/clear", cartHandler.ClearCart)
+		cart.GET("/count", cartHandler.GetCartCount)
 	}
 
 	// Auth routes

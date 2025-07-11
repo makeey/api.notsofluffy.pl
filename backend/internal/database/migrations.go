@@ -199,6 +199,50 @@ func Migrate(db *sql.DB) error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_product_variant_images_variant_id ON product_variant_images(product_variant_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_product_variant_images_image_id ON product_variant_images(image_id);`,
+		
+		// Cart tables
+		`CREATE TABLE IF NOT EXISTS cart_sessions (
+			id SERIAL PRIMARY KEY,
+			session_id VARCHAR(255) UNIQUE NOT NULL,
+			user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_cart_sessions_session_id ON cart_sessions(session_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_cart_sessions_user_id ON cart_sessions(user_id);`,
+		`DROP TRIGGER IF EXISTS update_cart_sessions_updated_at ON cart_sessions;`,
+		`CREATE TRIGGER update_cart_sessions_updated_at
+		BEFORE UPDATE ON cart_sessions
+		FOR EACH ROW
+		EXECUTE FUNCTION update_updated_at_column();`,
+		
+		`CREATE TABLE IF NOT EXISTS cart_items (
+			id SERIAL PRIMARY KEY,
+			cart_session_id INTEGER NOT NULL REFERENCES cart_sessions(id) ON DELETE CASCADE,
+			product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+			variant_id INTEGER NOT NULL REFERENCES product_variants(id) ON DELETE CASCADE,
+			size_id INTEGER NOT NULL REFERENCES sizes(id) ON DELETE CASCADE,
+			quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity > 0),
+			price_per_item DECIMAL(10, 2) NOT NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(cart_session_id, product_id, variant_id, size_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_cart_items_cart_session_id ON cart_items(cart_session_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_cart_items_product_id ON cart_items(product_id);`,
+		`DROP TRIGGER IF EXISTS update_cart_items_updated_at ON cart_items;`,
+		`CREATE TRIGGER update_cart_items_updated_at
+		BEFORE UPDATE ON cart_items
+		FOR EACH ROW
+		EXECUTE FUNCTION update_updated_at_column();`,
+		
+		`CREATE TABLE IF NOT EXISTS cart_item_services (
+			cart_item_id INTEGER NOT NULL REFERENCES cart_items(id) ON DELETE CASCADE,
+			additional_service_id INTEGER NOT NULL REFERENCES additional_services(id) ON DELETE CASCADE,
+			PRIMARY KEY (cart_item_id, additional_service_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_cart_item_services_cart_item_id ON cart_item_services(cart_item_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_cart_item_services_service_id ON cart_item_services(additional_service_id);`,
 	}
 
 	for i, migration := range migrations {
