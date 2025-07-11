@@ -1,8 +1,12 @@
 package database
 
 import (
+	"crypto/md5"
 	"database/sql"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"notsofluffy-backend/internal/models"
@@ -14,6 +18,29 @@ type CartQueries struct {
 
 func NewCartQueries(db *sql.DB) *CartQueries {
 	return &CartQueries{db: db}
+}
+
+// generateServicesHash creates a consistent hash from service IDs
+func generateServicesHash(serviceIDs []int) string {
+	if len(serviceIDs) == 0 {
+		return ""
+	}
+
+	// Sort IDs to ensure consistent hash for same services
+	sortedIDs := make([]int, len(serviceIDs))
+	copy(sortedIDs, serviceIDs)
+	sort.Ints(sortedIDs)
+
+	// Create string representation
+	idStrings := make([]string, len(sortedIDs))
+	for i, id := range sortedIDs {
+		idStrings[i] = strconv.Itoa(id)
+	}
+	idsString := strings.Join(idStrings, ",")
+
+	// Generate MD5 hash
+	hash := md5.Sum([]byte(idsString))
+	return fmt.Sprintf("%x", hash)
 }
 
 // GetOrCreateCartSession gets an existing cart session or creates a new one
@@ -95,10 +122,13 @@ func (q *CartQueries) UpdateCartSessionUser(cartSessionID int, userID int) error
 
 // AddCartItem adds an item to the cart or updates quantity if it exists
 func (q *CartQueries) AddCartItem(cartSessionID int, item *models.CartItemRequest, pricePerItem float64) (*models.CartItem, error) {
-	// Check if item already exists
-	existing, err := q.GetCartItemByDetails(cartSessionID, item.ProductID, item.VariantID, item.SizeID)
+	// Generate services hash
+	servicesHash := generateServicesHash(item.AdditionalServiceIDs)
+
+	// Check if item already exists with same services
+	existing, err := q.GetCartItemByDetailsWithServices(cartSessionID, item.ProductID, item.VariantID, item.SizeID, servicesHash)
 	if err == nil {
-		// Item exists, update quantity
+		// Item exists with same services, update quantity
 		existing.Quantity += item.Quantity
 		return q.UpdateCartItemQuantity(existing.ID, existing.Quantity)
 	}
@@ -111,15 +141,16 @@ func (q *CartQueries) AddCartItem(cartSessionID int, item *models.CartItemReques
 		SizeID:        item.SizeID,
 		Quantity:      item.Quantity,
 		PricePerItem:  pricePerItem,
+		ServicesHash:  servicesHash,
 	}
 
 	query := `
-		INSERT INTO cart_items (cart_session_id, product_id, variant_id, size_id, quantity, price_per_item)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO cart_items (cart_session_id, product_id, variant_id, size_id, quantity, price_per_item, services_hash)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at, updated_at
 	`
 	err = q.db.QueryRow(query, cartItem.CartSessionID, cartItem.ProductID, cartItem.VariantID,
-		cartItem.SizeID, cartItem.Quantity, cartItem.PricePerItem).Scan(
+		cartItem.SizeID, cartItem.Quantity, cartItem.PricePerItem, cartItem.ServicesHash).Scan(
 		&cartItem.ID,
 		&cartItem.CreatedAt,
 		&cartItem.UpdatedAt,
@@ -139,10 +170,10 @@ func (q *CartQueries) AddCartItem(cartSessionID int, item *models.CartItemReques
 	return cartItem, nil
 }
 
-// GetCartItemByDetails gets a cart item by its details
+// GetCartItemByDetails gets a cart item by its details (without considering services)
 func (q *CartQueries) GetCartItemByDetails(cartSessionID, productID, variantID, sizeID int) (*models.CartItem, error) {
 	query := `
-		SELECT id, cart_session_id, product_id, variant_id, size_id, quantity, price_per_item, created_at, updated_at
+		SELECT id, cart_session_id, product_id, variant_id, size_id, quantity, price_per_item, services_hash, created_at, updated_at
 		FROM cart_items
 		WHERE cart_session_id = $1 AND product_id = $2 AND variant_id = $3 AND size_id = $4
 	`
@@ -155,6 +186,36 @@ func (q *CartQueries) GetCartItemByDetails(cartSessionID, productID, variantID, 
 		&item.SizeID,
 		&item.Quantity,
 		&item.PricePerItem,
+		&item.ServicesHash,
+		&item.CreatedAt,
+		&item.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("cart item not found")
+		}
+		return nil, fmt.Errorf("failed to get cart item: %w", err)
+	}
+	return item, nil
+}
+
+// GetCartItemByDetailsWithServices gets a cart item by its details including services hash
+func (q *CartQueries) GetCartItemByDetailsWithServices(cartSessionID, productID, variantID, sizeID int, servicesHash string) (*models.CartItem, error) {
+	query := `
+		SELECT id, cart_session_id, product_id, variant_id, size_id, quantity, price_per_item, services_hash, created_at, updated_at
+		FROM cart_items
+		WHERE cart_session_id = $1 AND product_id = $2 AND variant_id = $3 AND size_id = $4 AND services_hash = $5
+	`
+	item := &models.CartItem{}
+	err := q.db.QueryRow(query, cartSessionID, productID, variantID, sizeID, servicesHash).Scan(
+		&item.ID,
+		&item.CartSessionID,
+		&item.ProductID,
+		&item.VariantID,
+		&item.SizeID,
+		&item.Quantity,
+		&item.PricePerItem,
+		&item.ServicesHash,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 	)
@@ -173,7 +234,7 @@ func (q *CartQueries) UpdateCartItemQuantity(cartItemID, quantity int) (*models.
 		UPDATE cart_items 
 		SET quantity = $1, updated_at = CURRENT_TIMESTAMP 
 		WHERE id = $2
-		RETURNING id, cart_session_id, product_id, variant_id, size_id, quantity, price_per_item, created_at, updated_at
+		RETURNING id, cart_session_id, product_id, variant_id, size_id, quantity, price_per_item, services_hash, created_at, updated_at
 	`
 	item := &models.CartItem{}
 	err := q.db.QueryRow(query, quantity, cartItemID).Scan(
@@ -184,6 +245,7 @@ func (q *CartQueries) UpdateCartItemQuantity(cartItemID, quantity int) (*models.
 		&item.SizeID,
 		&item.Quantity,
 		&item.PricePerItem,
+		&item.ServicesHash,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 	)

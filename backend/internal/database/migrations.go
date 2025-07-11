@@ -344,6 +344,15 @@ func Migrate(db *sql.DB) error {
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS phone VARCHAR(50) NOT NULL DEFAULT '';`,
 		`UPDATE orders SET phone = '' WHERE phone IS NULL;`,
 		`CREATE INDEX IF NOT EXISTS idx_orders_phone ON orders(phone);`,
+		
+		// Add services_hash column to cart_items table for unique service combinations
+		`ALTER TABLE cart_items ADD COLUMN IF NOT EXISTS services_hash VARCHAR(64) NOT NULL DEFAULT '';`,
+		`UPDATE cart_items SET services_hash = '' WHERE services_hash IS NULL;`,
+		// Drop old unique constraint and create new one with services_hash
+		`ALTER TABLE cart_items DROP CONSTRAINT IF EXISTS cart_items_cart_session_id_product_id_variant_id_size_id_key;`,
+		`ALTER TABLE cart_items DROP CONSTRAINT IF EXISTS cart_items_unique_with_services;`,
+		`ALTER TABLE cart_items ADD CONSTRAINT cart_items_unique_with_services UNIQUE (cart_session_id, product_id, variant_id, size_id, services_hash);`,
+		`CREATE INDEX IF NOT EXISTS idx_cart_items_services_hash ON cart_items(services_hash);`,
 	}
 
 	for i, migration := range migrations {

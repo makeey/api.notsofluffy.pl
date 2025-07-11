@@ -22,6 +22,7 @@ type CartItem struct {
 	SizeID        int       `json:"size_id"`
 	Quantity      int       `json:"quantity"`
 	PricePerItem  float64   `json:"price_per_item"`
+	ServicesHash  string    `json:"services_hash"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
