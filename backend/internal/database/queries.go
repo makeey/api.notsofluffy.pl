@@ -1166,3 +1166,948 @@ func (q *ColorQueries) NameExistsForMaterial(name string, materialID int, exclud
 	}
 	return exists, nil
 }
+
+// AdditionalService Queries
+
+type AdditionalServiceQueries struct {
+	db *sql.DB
+}
+
+func NewAdditionalServiceQueries(db *sql.DB) *AdditionalServiceQueries {
+	return &AdditionalServiceQueries{db: db}
+}
+
+func (q *AdditionalServiceQueries) CreateAdditionalService(service *models.AdditionalService) error {
+	query := `
+		INSERT INTO additional_services (name, description, price)
+		VALUES ($1, $2, $3)
+		RETURNING id, created_at, updated_at
+	`
+	err := q.db.QueryRow(query, 
+		service.Name, 
+		service.Description, 
+		service.Price,
+	).Scan(
+		&service.ID,
+		&service.CreatedAt,
+		&service.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create additional service: %w", err)
+	}
+	return nil
+}
+
+func (q *AdditionalServiceQueries) GetAdditionalServiceByID(id int) (*models.AdditionalServiceWithImages, error) {
+	// First get the service
+	serviceQuery := `
+		SELECT id, name, description, price, created_at, updated_at
+		FROM additional_services
+		WHERE id = $1
+	`
+	service := &models.AdditionalServiceWithImages{}
+	err := q.db.QueryRow(serviceQuery, id).Scan(
+		&service.ID,
+		&service.Name,
+		&service.Description,
+		&service.Price,
+		&service.CreatedAt,
+		&service.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("additional service not found")
+		}
+		return nil, fmt.Errorf("failed to get additional service: %w", err)
+	}
+
+	// Then get associated images
+	imagesQuery := `
+		SELECT i.id, i.filename, i.original_name, i.path, i.size_bytes, i.mime_type, i.uploaded_by, i.created_at, i.updated_at
+		FROM images i
+		INNER JOIN additional_service_images asi ON i.id = asi.image_id
+		WHERE asi.additional_service_id = $1
+		ORDER BY i.created_at ASC
+	`
+	rows, err := q.db.Query(imagesQuery, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get service images: %w", err)
+	}
+	defer rows.Close()
+
+	var images []models.ImageResponse
+	for rows.Next() {
+		var image models.Image
+		err := rows.Scan(
+			&image.ID,
+			&image.Filename,
+			&image.OriginalName,
+			&image.Path,
+			&image.SizeBytes,
+			&image.MimeType,
+			&image.UploadedBy,
+			&image.CreatedAt,
+			&image.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan service image: %w", err)
+		}
+
+		images = append(images, models.ImageResponse{
+			ID:           image.ID,
+			Filename:     image.Filename,
+			OriginalName: image.OriginalName,
+			Path:         image.Path,
+			SizeBytes:    image.SizeBytes,
+			MimeType:     image.MimeType,
+			UploadedBy:   image.UploadedBy,
+			CreatedAt:    image.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:    image.UpdatedAt.Format(time.RFC3339),
+		})
+	}
+
+	service.Images = images
+	return service, nil
+}
+
+func (q *AdditionalServiceQueries) ListAdditionalServices(page, limit int, search string, minPrice, maxPrice *float64) ([]models.AdditionalServiceWithImages, int, error) {
+	offset := (page - 1) * limit
+	var services []models.AdditionalServiceWithImages
+	var total int
+
+	// Build WHERE clause
+	whereConditions := []string{}
+	args := []interface{}{}
+	argIndex := 1
+
+	if search != "" {
+		whereConditions = append(whereConditions, fmt.Sprintf("(s.name ILIKE $%d OR s.description ILIKE $%d)", argIndex, argIndex))
+		args = append(args, "%"+search+"%")
+		argIndex++
+	}
+
+	if minPrice != nil {
+		whereConditions = append(whereConditions, fmt.Sprintf("s.price >= $%d", argIndex))
+		args = append(args, *minPrice)
+		argIndex++
+	}
+
+	if maxPrice != nil {
+		whereConditions = append(whereConditions, fmt.Sprintf("s.price <= $%d", argIndex))
+		args = append(args, *maxPrice)
+		argIndex++
+	}
+
+	whereClause := ""
+	if len(whereConditions) > 0 {
+		whereClause = "WHERE " + fmt.Sprintf("(%s)", whereConditions[0])
+		for i := 1; i < len(whereConditions); i++ {
+			whereClause += " AND " + fmt.Sprintf("(%s)", whereConditions[i])
+		}
+	}
+
+	// Count total services
+	countQuery := `SELECT COUNT(*) FROM additional_services s ` + whereClause
+	err := q.db.QueryRow(countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count additional services: %w", err)
+	}
+
+	// Get services
+	servicesQuery := `
+		SELECT s.id, s.name, s.description, s.price, s.created_at, s.updated_at
+		FROM additional_services s
+		` + whereClause + `
+		ORDER BY s.name ASC
+		LIMIT $` + fmt.Sprintf("%d", argIndex) + ` OFFSET $` + fmt.Sprintf("%d", argIndex+1)
+	
+	args = append(args, limit, offset)
+	
+	rows, err := q.db.Query(servicesQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list additional services: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var service models.AdditionalServiceWithImages
+		err := rows.Scan(
+			&service.ID,
+			&service.Name,
+			&service.Description,
+			&service.Price,
+			&service.CreatedAt,
+			&service.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan additional service: %w", err)
+		}
+
+		// Get images for this service
+		imagesQuery := `
+			SELECT i.id, i.filename, i.original_name, i.path, i.size_bytes, i.mime_type, i.uploaded_by, i.created_at, i.updated_at
+			FROM images i
+			INNER JOIN additional_service_images asi ON i.id = asi.image_id
+			WHERE asi.additional_service_id = $1
+			ORDER BY i.created_at ASC
+		`
+		imageRows, err := q.db.Query(imagesQuery, service.ID)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to get images for service %d: %w", service.ID, err)
+		}
+
+		var images []models.ImageResponse
+		for imageRows.Next() {
+			var image models.Image
+			err := imageRows.Scan(
+				&image.ID,
+				&image.Filename,
+				&image.OriginalName,
+				&image.Path,
+				&image.SizeBytes,
+				&image.MimeType,
+				&image.UploadedBy,
+				&image.CreatedAt,
+				&image.UpdatedAt,
+			)
+			if err != nil {
+				imageRows.Close()
+				return nil, 0, fmt.Errorf("failed to scan service image: %w", err)
+			}
+
+			images = append(images, models.ImageResponse{
+				ID:           image.ID,
+				Filename:     image.Filename,
+				OriginalName: image.OriginalName,
+				Path:         image.Path,
+				SizeBytes:    image.SizeBytes,
+				MimeType:     image.MimeType,
+				UploadedBy:   image.UploadedBy,
+				CreatedAt:    image.CreatedAt.Format(time.RFC3339),
+				UpdatedAt:    image.UpdatedAt.Format(time.RFC3339),
+			})
+		}
+		imageRows.Close()
+
+		service.Images = images
+		services = append(services, service)
+	}
+
+	return services, total, nil
+}
+
+func (q *AdditionalServiceQueries) UpdateAdditionalService(id int, name, description string, price float64) (*models.AdditionalService, error) {
+	service := &models.AdditionalService{
+		ID:          id,
+		Name:        name,
+		Description: description,
+		Price:       price,
+	}
+
+	query := `
+		UPDATE additional_services
+		SET name = $1, description = $2, price = $3, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $4
+		RETURNING created_at, updated_at
+	`
+	err := q.db.QueryRow(query, name, description, price, id).Scan(
+		&service.CreatedAt,
+		&service.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update additional service: %w", err)
+	}
+
+	return service, nil
+}
+
+func (q *AdditionalServiceQueries) DeleteAdditionalService(id int) error {
+	query := `DELETE FROM additional_services WHERE id = $1`
+	result, err := q.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete additional service: %w", err)
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rowsAffected == 0 {
+		return fmt.Errorf("additional service not found")
+	}
+	
+	return nil
+}
+
+func (q *AdditionalServiceQueries) NameExists(name string, excludeID *int) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM additional_services WHERE name = $1`
+	args := []interface{}{name}
+	
+	if excludeID != nil {
+		query += ` AND id != $2`
+		args = append(args, *excludeID)
+	}
+	
+	query += `)`
+	
+	var exists bool
+	err := q.db.QueryRow(query, args...).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check additional service name existence: %w", err)
+	}
+	return exists, nil
+}
+
+// ManyToMany image management methods
+
+func (q *AdditionalServiceQueries) ReplaceImages(serviceID int, imageIDs []int) error {
+	// Start transaction
+	tx, err := q.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete existing associations
+	_, err = tx.Exec("DELETE FROM additional_service_images WHERE additional_service_id = $1", serviceID)
+	if err != nil {
+		return fmt.Errorf("failed to delete existing image associations: %w", err)
+	}
+
+	// Add new associations
+	for _, imageID := range imageIDs {
+		_, err = tx.Exec("INSERT INTO additional_service_images (additional_service_id, image_id) VALUES ($1, $2)", serviceID, imageID)
+		if err != nil {
+			return fmt.Errorf("failed to add image association: %w", err)
+		}
+	}
+
+	// Commit transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+func (q *AdditionalServiceQueries) AddImages(serviceID int, imageIDs []int) error {
+	for _, imageID := range imageIDs {
+		_, err := q.db.Exec("INSERT INTO additional_service_images (additional_service_id, image_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", serviceID, imageID)
+		if err != nil {
+			return fmt.Errorf("failed to add image association: %w", err)
+		}
+	}
+	return nil
+}
+
+func (q *AdditionalServiceQueries) RemoveImages(serviceID int, imageIDs []int) error {
+	for _, imageID := range imageIDs {
+		_, err := q.db.Exec("DELETE FROM additional_service_images WHERE additional_service_id = $1 AND image_id = $2", serviceID, imageID)
+		if err != nil {
+			return fmt.Errorf("failed to remove image association: %w", err)
+		}
+	}
+	return nil
+}
+
+// Product Queries
+
+type ProductQueries struct {
+	db *sql.DB
+}
+
+func NewProductQueries(db *sql.DB) *ProductQueries {
+	return &ProductQueries{db: db}
+}
+
+func (q *ProductQueries) ListProducts(page, limit int, search string, categoryID, materialID *int) ([]models.ProductWithRelations, int, error) {
+	offset := (page - 1) * limit
+	
+	whereClause := "WHERE 1=1"
+	args := []interface{}{}
+	argCount := 0
+	
+	if search != "" {
+		argCount++
+		whereClause += fmt.Sprintf(" AND (p.name ILIKE $%d OR p.short_description ILIKE $%d OR p.description ILIKE $%d)", argCount, argCount, argCount)
+		args = append(args, "%"+search+"%")
+	}
+	
+	if categoryID != nil {
+		argCount++
+		whereClause += fmt.Sprintf(" AND p.category_id = $%d", argCount)
+		args = append(args, *categoryID)
+	}
+	
+	if materialID != nil {
+		argCount++
+		whereClause += fmt.Sprintf(" AND p.material_id = $%d", argCount)
+		args = append(args, *materialID)
+	}
+	
+	// First get total count
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*) 
+		FROM products p
+		%s
+	`, whereClause)
+	
+	var total int
+	err := q.db.QueryRow(countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count products: %w", err)
+	}
+	
+	// Then get paginated results with all relations
+	argCount++
+	limitArg := argCount
+	argCount++
+	offsetArg := argCount
+	
+	query := fmt.Sprintf(`
+		SELECT 
+			p.id, p.name, p.short_description, p.description, p.material_id, p.main_image_id, p.category_id, p.created_at, p.updated_at,
+			mi.id, mi.filename, mi.original_name, mi.path, mi.size_bytes, mi.mime_type, mi.uploaded_by, mi.created_at, mi.updated_at,
+			m.id, m.name, m.created_at, m.updated_at,
+			c.id, c.name, c.slug, c.image_id, c.active, c.chart_only, c.created_at, c.updated_at
+		FROM products p
+		JOIN images mi ON p.main_image_id = mi.id
+		LEFT JOIN materials m ON p.material_id = m.id
+		LEFT JOIN categories c ON p.category_id = c.id
+		%s
+		ORDER BY p.created_at DESC
+		LIMIT $%d OFFSET $%d
+	`, whereClause, limitArg, offsetArg)
+	
+	args = append(args, limit, offset)
+	
+	rows, err := q.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list products: %w", err)
+	}
+	defer rows.Close()
+	
+	var products []models.ProductWithRelations
+	
+	for rows.Next() {
+		var product models.ProductWithRelations
+		var mainImage models.ImageResponse
+		var material models.MaterialResponse
+		var category models.CategoryResponse
+		var materialID, categoryID sql.NullInt64
+		var materialName, materialCreatedAt, materialUpdatedAt sql.NullString
+		var categoryName, categorySlug, categoryCreatedAt, categoryUpdatedAt sql.NullString
+		var categoryImageID sql.NullInt64
+		var categoryActive, categoryChartOnly sql.NullBool
+		
+		err := rows.Scan(
+			&product.ID, &product.Name, &product.ShortDescription, &product.Description,
+			&product.MaterialID, &product.MainImageID, &product.CategoryID, &product.CreatedAt, &product.UpdatedAt,
+			&mainImage.ID, &mainImage.Filename, &mainImage.OriginalName, &mainImage.Path,
+			&mainImage.SizeBytes, &mainImage.MimeType, &mainImage.UploadedBy, &mainImage.CreatedAt, &mainImage.UpdatedAt,
+			&materialID, &materialName, &materialCreatedAt, &materialUpdatedAt,
+			&categoryID, &categoryName, &categorySlug, &categoryImageID, &categoryActive, &categoryChartOnly, &categoryCreatedAt, &categoryUpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan product: %w", err)
+		}
+		
+		product.MainImage = mainImage
+		
+		// Add material if exists
+		if materialID.Valid {
+			material.ID = int(materialID.Int64)
+			material.Name = materialName.String
+			material.CreatedAt = materialCreatedAt.String
+			material.UpdatedAt = materialUpdatedAt.String
+			product.Material = &material
+		}
+		
+		// Add category if exists
+		if categoryID.Valid {
+			category.ID = int(categoryID.Int64)
+			category.Name = categoryName.String
+			category.Slug = categorySlug.String
+			if categoryImageID.Valid {
+				imageID := int(categoryImageID.Int64)
+				category.ImageID = &imageID
+			}
+			category.Active = categoryActive.Bool
+			category.ChartOnly = categoryChartOnly.Bool
+			category.CreatedAt = categoryCreatedAt.String
+			category.UpdatedAt = categoryUpdatedAt.String
+			product.Category = &category
+		}
+		
+		// Get product images
+		images, err := q.getProductImages(product.ID)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to get product images: %w", err)
+		}
+		product.Images = images
+		
+		// Get product services
+		services, err := q.getProductServices(product.ID)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to get product services: %w", err)
+		}
+		product.AdditionalServices = services
+		
+		products = append(products, product)
+	}
+	
+	return products, total, nil
+}
+
+func (q *ProductQueries) getProductImages(productID int) ([]models.ImageResponse, error) {
+	query := `
+		SELECT i.id, i.filename, i.original_name, i.path, i.size_bytes, i.mime_type, i.uploaded_by, i.created_at, i.updated_at
+		FROM images i
+		JOIN product_images pi ON i.id = pi.image_id
+		WHERE pi.product_id = $1
+		ORDER BY i.created_at ASC
+	`
+	
+	rows, err := q.db.Query(query, productID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get product images: %w", err)
+	}
+	defer rows.Close()
+	
+	var images []models.ImageResponse
+	for rows.Next() {
+		var image models.ImageResponse
+		err := rows.Scan(
+			&image.ID, &image.Filename, &image.OriginalName, &image.Path,
+			&image.SizeBytes, &image.MimeType, &image.UploadedBy, &image.CreatedAt, &image.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan image: %w", err)
+		}
+		images = append(images, image)
+	}
+	
+	return images, nil
+}
+
+func (q *ProductQueries) getProductServices(productID int) ([]models.AdditionalServiceResponse, error) {
+	query := `
+		SELECT a.id, a.name, a.description, a.price, a.created_at, a.updated_at
+		FROM additional_services a
+		JOIN product_services ps ON a.id = ps.additional_service_id
+		WHERE ps.product_id = $1
+		ORDER BY a.name ASC
+	`
+	
+	rows, err := q.db.Query(query, productID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get product services: %w", err)
+	}
+	defer rows.Close()
+	
+	var services []models.AdditionalServiceResponse
+	for rows.Next() {
+		var service models.AdditionalServiceResponse
+		err := rows.Scan(
+			&service.ID, &service.Name, &service.Description, &service.Price, &service.CreatedAt, &service.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan service: %w", err)
+		}
+		
+		// For each service, get its images (empty for now, but maintaining structure)
+		service.Images = []models.ImageResponse{}
+		
+		services = append(services, service)
+	}
+	
+	return services, nil
+}
+
+func (q *ProductQueries) CreateProduct(product *models.Product) error {
+	query := `
+		INSERT INTO products (name, short_description, description, material_id, main_image_id, category_id)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, created_at, updated_at
+	`
+	
+	err := q.db.QueryRow(query, product.Name, product.ShortDescription, product.Description, 
+		product.MaterialID, product.MainImageID, product.CategoryID).Scan(
+		&product.ID, &product.CreatedAt, &product.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create product: %w", err)
+	}
+	
+	return nil
+}
+
+func (q *ProductQueries) GetProduct(id int) (*models.ProductWithRelations, error) {
+	query := `
+		SELECT 
+			p.id, p.name, p.short_description, p.description, p.material_id, p.main_image_id, p.category_id, p.created_at, p.updated_at,
+			mi.id, mi.filename, mi.original_name, mi.path, mi.size_bytes, mi.mime_type, mi.uploaded_by, mi.created_at, mi.updated_at,
+			m.id, m.name, m.created_at, m.updated_at,
+			c.id, c.name, c.slug, c.image_id, c.active, c.chart_only, c.created_at, c.updated_at
+		FROM products p
+		JOIN images mi ON p.main_image_id = mi.id
+		LEFT JOIN materials m ON p.material_id = m.id
+		LEFT JOIN categories c ON p.category_id = c.id
+		WHERE p.id = $1
+	`
+	
+	var product models.ProductWithRelations
+	var mainImage models.ImageResponse
+	var material models.MaterialResponse
+	var category models.CategoryResponse
+	var materialID, categoryID sql.NullInt64
+	var materialName, materialCreatedAt, materialUpdatedAt sql.NullString
+	var categoryName, categorySlug, categoryCreatedAt, categoryUpdatedAt sql.NullString
+	var categoryImageID sql.NullInt64
+	var categoryActive, categoryChartOnly sql.NullBool
+	
+	err := q.db.QueryRow(query, id).Scan(
+		&product.ID, &product.Name, &product.ShortDescription, &product.Description,
+		&product.MaterialID, &product.MainImageID, &product.CategoryID, &product.CreatedAt, &product.UpdatedAt,
+		&mainImage.ID, &mainImage.Filename, &mainImage.OriginalName, &mainImage.Path,
+		&mainImage.SizeBytes, &mainImage.MimeType, &mainImage.UploadedBy, &mainImage.CreatedAt, &mainImage.UpdatedAt,
+		&materialID, &materialName, &materialCreatedAt, &materialUpdatedAt,
+		&categoryID, &categoryName, &categorySlug, &categoryImageID, &categoryActive, &categoryChartOnly, &categoryCreatedAt, &categoryUpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("product not found")
+		}
+		return nil, fmt.Errorf("failed to get product: %w", err)
+	}
+	
+	product.MainImage = mainImage
+	
+	// Add material if exists
+	if materialID.Valid {
+		material.ID = int(materialID.Int64)
+		material.Name = materialName.String
+		material.CreatedAt = materialCreatedAt.String
+		material.UpdatedAt = materialUpdatedAt.String
+		product.Material = &material
+	}
+	
+	// Add category if exists
+	if categoryID.Valid {
+		category.ID = int(categoryID.Int64)
+		category.Name = categoryName.String
+		category.Slug = categorySlug.String
+		if categoryImageID.Valid {
+			imageID := int(categoryImageID.Int64)
+			category.ImageID = &imageID
+		}
+		category.Active = categoryActive.Bool
+		category.ChartOnly = categoryChartOnly.Bool
+		category.CreatedAt = categoryCreatedAt.String
+		category.UpdatedAt = categoryUpdatedAt.String
+		product.Category = &category
+	}
+	
+	// Get product images
+	images, err := q.getProductImages(product.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get product images: %w", err)
+	}
+	product.Images = images
+	
+	// Get product services
+	services, err := q.getProductServices(product.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get product services: %w", err)
+	}
+	product.AdditionalServices = services
+	
+	return &product, nil
+}
+
+func (q *ProductQueries) UpdateProduct(id int, product *models.Product) error {
+	query := `
+		UPDATE products 
+		SET name = $1, short_description = $2, description = $3, material_id = $4, main_image_id = $5, category_id = $6
+		WHERE id = $7
+		RETURNING updated_at
+	`
+	
+	err := q.db.QueryRow(query, product.Name, product.ShortDescription, product.Description,
+		product.MaterialID, product.MainImageID, product.CategoryID, id).Scan(&product.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("product not found")
+		}
+		return fmt.Errorf("failed to update product: %w", err)
+	}
+	
+	return nil
+}
+
+func (q *ProductQueries) DeleteProduct(id int) error {
+	// Delete product (this will cascade delete images and services associations)
+	result, err := q.db.Exec("DELETE FROM products WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete product: %w", err)
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rowsAffected == 0 {
+		return fmt.Errorf("product not found")
+	}
+	
+	return nil
+}
+
+// ManyToMany operations for product images
+func (q *ProductQueries) ReplaceImages(productID int, imageIDs []int) error {
+	tx, err := q.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	
+	// Delete existing associations
+	_, err = tx.Exec("DELETE FROM product_images WHERE product_id = $1", productID)
+	if err != nil {
+		return fmt.Errorf("failed to delete existing image associations: %w", err)
+	}
+	
+	// Add new associations
+	for _, imageID := range imageIDs {
+		_, err = tx.Exec("INSERT INTO product_images (product_id, image_id) VALUES ($1, $2)", productID, imageID)
+		if err != nil {
+			return fmt.Errorf("failed to add image association: %w", err)
+		}
+	}
+	
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	
+	return nil
+}
+
+// ManyToMany operations for product services
+func (q *ProductQueries) ReplaceServices(productID int, serviceIDs []int) error {
+	tx, err := q.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	
+	// Delete existing associations
+	_, err = tx.Exec("DELETE FROM product_services WHERE product_id = $1", productID)
+	if err != nil {
+		return fmt.Errorf("failed to delete existing service associations: %w", err)
+	}
+	
+	// Add new associations
+	for _, serviceID := range serviceIDs {
+		_, err = tx.Exec("INSERT INTO product_services (product_id, additional_service_id) VALUES ($1, $2)", productID, serviceID)
+		if err != nil {
+			return fmt.Errorf("failed to add service association: %w", err)
+		}
+	}
+	
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	
+	return nil
+}
+
+// Size queries
+type SizeQueries struct {
+	db *sql.DB
+}
+
+func NewSizeQueries(db *sql.DB) *SizeQueries {
+	return &SizeQueries{db: db}
+}
+
+func (q *SizeQueries) CreateSize(size *models.Size) error {
+	query := `
+		INSERT INTO sizes (name, product_id, base_price, a, b, c, d, e, f)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING id, created_at, updated_at
+	`
+	
+	err := q.db.QueryRow(query, size.Name, size.ProductID, size.BasePrice, 
+		size.A, size.B, size.C, size.D, size.E, size.F).Scan(&size.ID, &size.CreatedAt, &size.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("failed to create size: %w", err)
+	}
+	
+	return nil
+}
+
+func (q *SizeQueries) GetSizeByID(id int) (*models.SizeWithProduct, error) {
+	query := `
+		SELECT s.id, s.name, s.product_id, s.base_price, s.a, s.b, s.c, s.d, s.e, s.f, s.created_at, s.updated_at,
+			   p.id, p.name, p.short_description, p.description, p.material_id, p.main_image_id, p.category_id, p.created_at, p.updated_at
+		FROM sizes s
+		JOIN products p ON s.product_id = p.id
+		WHERE s.id = $1
+	`
+	
+	var size models.SizeWithProduct
+	var product models.Product
+	
+	err := q.db.QueryRow(query, id).Scan(
+		&size.ID, &size.Name, &size.ProductID, &size.BasePrice, &size.A, &size.B, &size.C, &size.D, &size.E, &size.F, &size.CreatedAt, &size.UpdatedAt,
+		&product.ID, &product.Name, &product.ShortDescription, &product.Description, &product.MaterialID, &product.MainImageID, &product.CategoryID, &product.CreatedAt, &product.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("size not found")
+		}
+		return nil, fmt.Errorf("failed to get size: %w", err)
+	}
+	
+	// Convert product to response format
+	size.Product = models.ProductResponse{
+		ID:               product.ID,
+		Name:             product.Name,
+		ShortDescription: product.ShortDescription,
+		Description:      product.Description,
+		MaterialID:       product.MaterialID,
+		MainImageID:      product.MainImageID,
+		CategoryID:       product.CategoryID,
+		CreatedAt:        product.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:        product.UpdatedAt.Format(time.RFC3339),
+	}
+	
+	return &size, nil
+}
+
+func (q *SizeQueries) ListSizes(page, limit int, search string, productID *int) ([]models.SizeResponse, int, error) {
+	offset := (page - 1) * limit
+	
+	whereClause := "WHERE 1=1"
+	args := []interface{}{}
+	argIndex := 1
+	
+	if search != "" {
+		whereClause += fmt.Sprintf(" AND s.name ILIKE $%d", argIndex)
+		args = append(args, "%"+search+"%")
+		argIndex++
+	}
+	
+	if productID != nil {
+		whereClause += fmt.Sprintf(" AND s.product_id = $%d", argIndex)
+		args = append(args, *productID)
+		argIndex++
+	}
+	
+	// Count total
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*) FROM sizes s
+		JOIN products p ON s.product_id = p.id
+		%s
+	`, whereClause)
+	
+	var total int
+	err := q.db.QueryRow(countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count sizes: %w", err)
+	}
+	
+	// Get sizes
+	query := fmt.Sprintf(`
+		SELECT s.id, s.name, s.product_id, s.base_price, s.a, s.b, s.c, s.d, s.e, s.f, s.created_at, s.updated_at,
+			   p.id, p.name, p.short_description, p.description, p.material_id, p.main_image_id, p.category_id, p.created_at, p.updated_at
+		FROM sizes s
+		JOIN products p ON s.product_id = p.id
+		%s
+		ORDER BY s.name
+		LIMIT $%d OFFSET $%d
+	`, whereClause, argIndex, argIndex+1)
+	
+	args = append(args, limit, offset)
+	
+	rows, err := q.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query sizes: %w", err)
+	}
+	defer rows.Close()
+	
+	var sizes []models.SizeResponse
+	for rows.Next() {
+		var size models.SizeResponse
+		var product models.Product
+		
+		err := rows.Scan(
+			&size.ID, &size.Name, &size.ProductID, &size.BasePrice, &size.A, &size.B, &size.C, &size.D, &size.E, &size.F, &size.CreatedAt, &size.UpdatedAt,
+			&product.ID, &product.Name, &product.ShortDescription, &product.Description, &product.MaterialID, &product.MainImageID, &product.CategoryID, &product.CreatedAt, &product.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan size: %w", err)
+		}
+		
+		size.CreatedAt = size.CreatedAt[:19] // Format timestamp
+		size.UpdatedAt = size.UpdatedAt[:19]
+		
+		size.Product = models.ProductResponse{
+			ID:               product.ID,
+			Name:             product.Name,
+			ShortDescription: product.ShortDescription,
+			Description:      product.Description,
+			MaterialID:       product.MaterialID,
+			MainImageID:      product.MainImageID,
+			CategoryID:       product.CategoryID,
+			CreatedAt:        product.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:        product.UpdatedAt.Format(time.RFC3339),
+		}
+		
+		sizes = append(sizes, size)
+	}
+	
+	return sizes, total, nil
+}
+
+func (q *SizeQueries) UpdateSize(id int, size *models.Size) error {
+	query := `
+		UPDATE sizes 
+		SET name = $1, product_id = $2, base_price = $3, a = $4, b = $5, c = $6, d = $7, e = $8, f = $9
+		WHERE id = $10
+		RETURNING updated_at
+	`
+	
+	err := q.db.QueryRow(query, size.Name, size.ProductID, size.BasePrice,
+		size.A, size.B, size.C, size.D, size.E, size.F, id).Scan(&size.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("size not found")
+		}
+		return fmt.Errorf("failed to update size: %w", err)
+	}
+	
+	return nil
+}
+
+func (q *SizeQueries) DeleteSize(id int) error {
+	query := `DELETE FROM sizes WHERE id = $1`
+	
+	result, err := q.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete size: %w", err)
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rowsAffected == 0 {
+		return fmt.Errorf("size not found")
+	}
+	
+	return nil
+}

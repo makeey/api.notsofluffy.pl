@@ -86,21 +86,73 @@ The frontend development server uses Turbopack (`--turbopack` flag) for faster b
 - **Clean Architecture**: Separated concerns with proper layering
 - **Database Layer**: Raw SQL queries with prepared statements
 - **Authentication**: JWT-based auth with middleware
+- **File Uploads**: Image upload handling with file storage in `uploads/images/`
+- **Static File Serving**: Serves uploaded files from `/uploads` endpoint
 - **Structure**:
-  - `cmd/server/` - Application entry point
+  - `cmd/server/` - Application entry point with route definitions
   - `cmd/create-admin/` - CLI tool for creating admin users
   - `internal/config/` - Configuration management
   - `internal/database/` - Database connection, migrations, and queries
   - `internal/models/` - Data models and request/response types
   - `internal/auth/` - JWT and password hashing utilities
-  - `internal/handlers/` - HTTP request handlers
+  - `internal/handlers/` - HTTP request handlers (auth.go, admin.go)
   - `internal/middleware/` - HTTP middleware (auth, CORS)
 
+### Key Features
+- **E-commerce Product Management**: Full CRUD for products with categories, materials, colors, and additional services
+- **Image Management**: Upload, list, and delete images with database tracking
+- **Relational Data Handling**: Complex queries with junction tables for many-to-many relationships
+- **Admin Dashboard Support**: All endpoints designed for admin panel operations
+- **File Upload Security**: Images stored with UUID filenames to prevent conflicts
+
 ### Database Schema
-- **Users Table**: id, email, password_hash, role, created_at, updated_at
-- **Indexes**: email (unique), role
-- **Triggers**: Automatic updated_at timestamp
-- **Roles**: client, admin
+
+#### Core Tables
+- **users**: id, email, password_hash, role, created_at, updated_at
+  - Indexes: email (unique), role
+  - Roles: client, admin
+
+- **images**: id, filename, original_name, uploaded_by, created_at, updated_at
+  - References: uploaded_by → users(id)
+  - Used for storing uploaded images
+
+- **categories**: id, name, image_id, is_active, created_at, updated_at
+  - References: image_id → images(id)
+  - Used for product categorization
+
+- **materials**: id, name, created_at, updated_at
+  - Indexes: name
+  - Used for product materials
+
+- **colors**: id, name, image_id, material_id, created_at, updated_at
+  - References: image_id → images(id), material_id → materials(id)
+  - Indexes: name, material_id
+
+- **additional_services**: id, name, description, price, created_at, updated_at
+  - Indexes: name (unique), price
+  - Used for extra services that can be added to products
+
+- **products**: id, name, short_description, description, material_id, main_image_id, category_id, created_at, updated_at
+  - References: material_id → materials(id), main_image_id → images(id), category_id → categories(id)
+  - Indexes: name, material_id, main_image_id, category_id
+
+#### Junction Tables
+- **additional_service_images**: additional_service_id, image_id
+  - References: additional_service_id → additional_services(id), image_id → images(id)
+  - Primary Key: (additional_service_id, image_id)
+
+- **product_images**: product_id, image_id
+  - References: product_id → products(id), image_id → images(id)
+  - Primary Key: (product_id, image_id)
+
+- **product_services**: product_id, additional_service_id
+  - References: product_id → products(id), additional_service_id → additional_services(id)
+  - Primary Key: (product_id, additional_service_id)
+
+#### Database Features
+- All tables have automatic updated_at triggers
+- Cascading deletes for junction tables
+- Foreign key constraints for data integrity
 
 ### Authentication Flow
 1. User registers/logs in via frontend
@@ -129,3 +181,56 @@ The frontend development server uses Turbopack (`--turbopack` flag) for faster b
 - `POST /api/auth/login` - User login
 - `POST /api/auth/refresh` - Token refresh
 - `GET /api/auth/profile` - Get user profile (protected)
+
+### Admin Endpoints (Protected - Admin Role Required)
+
+#### User Management
+- `GET /api/admin/users` - List all users
+- `POST /api/admin/users` - Create new user
+- `PUT /api/admin/users/:id` - Update user
+- `DELETE /api/admin/users/:id` - Delete user
+
+#### Image Management
+- `POST /api/admin/images/upload` - Upload image (multipart/form-data)
+- `GET /api/admin/images` - List all images
+- `DELETE /api/admin/images/:id` - Delete image
+
+#### Category Management
+- `GET /api/admin/categories` - List categories
+- `POST /api/admin/categories` - Create category
+- `GET /api/admin/categories/:id` - Get category details
+- `PUT /api/admin/categories/:id` - Update category
+- `DELETE /api/admin/categories/:id` - Delete category
+- `PATCH /api/admin/categories/:id/toggle` - Toggle category active status
+
+#### Material Management
+- `GET /api/admin/materials` - List materials
+- `POST /api/admin/materials` - Create material
+- `GET /api/admin/materials/:id` - Get material details
+- `PUT /api/admin/materials/:id` - Update material
+- `DELETE /api/admin/materials/:id` - Delete material
+
+#### Color Management
+- `GET /api/admin/colors` - List colors
+- `POST /api/admin/colors` - Create color
+- `GET /api/admin/colors/:id` - Get color details
+- `PUT /api/admin/colors/:id` - Update color
+- `DELETE /api/admin/colors/:id` - Delete color
+
+#### Additional Services Management
+- `GET /api/admin/additional-services` - List additional services
+- `POST /api/admin/additional-services` - Create additional service
+- `GET /api/admin/additional-services/:id` - Get service details
+- `PUT /api/admin/additional-services/:id` - Update service
+- `DELETE /api/admin/additional-services/:id` - Delete service
+
+#### Product Management
+- `GET /api/admin/products` - List products
+- `POST /api/admin/products` - Create product
+- `GET /api/admin/products/:id` - Get product details with all relations
+- `PUT /api/admin/products/:id` - Update product
+- `DELETE /api/admin/products/:id` - Delete product
+
+### Static Files
+- `GET /uploads/*` - Serve uploaded images and files
+

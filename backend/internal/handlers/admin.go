@@ -19,20 +19,28 @@ import (
 )
 
 type AdminHandler struct {
-	userQueries     *database.UserQueries
-	imageQueries    *database.ImageQueries
-	categoryQueries *database.CategoryQueries
-	materialQueries *database.MaterialQueries
-	colorQueries    *database.ColorQueries
+	db                       *sql.DB
+	userQueries              *database.UserQueries
+	imageQueries             *database.ImageQueries
+	categoryQueries          *database.CategoryQueries
+	materialQueries          *database.MaterialQueries
+	colorQueries             *database.ColorQueries
+	additionalServiceQueries *database.AdditionalServiceQueries
+	productQueries           *database.ProductQueries
+	sizeQueries              *database.SizeQueries
 }
 
 func NewAdminHandler(db *sql.DB) *AdminHandler {
 	return &AdminHandler{
-		userQueries:     database.NewUserQueries(db),
-		imageQueries:    database.NewImageQueries(db),
-		categoryQueries: database.NewCategoryQueries(db),
-		materialQueries: database.NewMaterialQueries(db),
-		colorQueries:    database.NewColorQueries(db),
+		db:                       db,
+		userQueries:              database.NewUserQueries(db),
+		imageQueries:             database.NewImageQueries(db),
+		categoryQueries:          database.NewCategoryQueries(db),
+		materialQueries:          database.NewMaterialQueries(db),
+		colorQueries:             database.NewColorQueries(db),
+		additionalServiceQueries: database.NewAdditionalServiceQueries(db),
+		productQueries:           database.NewProductQueries(db),
+		sizeQueries:              database.NewSizeQueries(db),
 	}
 }
 
@@ -896,6 +904,234 @@ func (h *AdminHandler) DeleteColor(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Color deleted successfully"})
 }
 
+// Additional Service Management
+
+func (h *AdminHandler) ListAdditionalServices(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	search := c.Query("search")
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	// Parse price filter parameters
+	var minPrice, maxPrice *float64
+
+	if minPriceParam := c.Query("min_price"); minPriceParam != "" {
+		if price, err := strconv.ParseFloat(minPriceParam, 64); err == nil && price >= 0 {
+			minPrice = &price
+		}
+	}
+
+	if maxPriceParam := c.Query("max_price"); maxPriceParam != "" {
+		if price, err := strconv.ParseFloat(maxPriceParam, 64); err == nil && price >= 0 {
+			maxPrice = &price
+		}
+	}
+
+	services, total, err := h.additionalServiceQueries.ListAdditionalServices(page, limit, search, minPrice, maxPrice)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve additional services"})
+		return
+	}
+
+	// Convert to response format
+	serviceResponses := make([]models.AdditionalServiceResponse, len(services))
+	for i, service := range services {
+		serviceResponses[i] = models.AdditionalServiceResponse{
+			ID:          service.ID,
+			Name:        service.Name,
+			Description: service.Description,
+			Price:       service.Price,
+			CreatedAt:   service.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:   service.UpdatedAt.Format(time.RFC3339),
+			Images:      service.Images,
+		}
+	}
+
+	response := models.AdditionalServiceListResponse{
+		AdditionalServices: serviceResponses,
+		Total:              total,
+		Page:               page,
+		Limit:              limit,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) CreateAdditionalService(c *gin.Context) {
+	var req models.AdditionalServiceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if name already exists
+	exists, err := h.additionalServiceQueries.NameExists(req.Name, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check service name"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusConflict, gin.H{"error": "Service name already exists"})
+		return
+	}
+
+	// Validate image IDs if provided
+	for _, imageID := range req.ImageIDs {
+		_, err := h.imageQueries.GetImageByID(imageID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid image ID: %d", imageID)})
+			return
+		}
+	}
+
+	service := &models.AdditionalService{
+		Name:        req.Name,
+		Description: req.Description,
+		Price:       req.Price,
+	}
+
+	err = h.additionalServiceQueries.CreateAdditionalService(service)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create additional service"})
+		return
+	}
+
+	// Associate images if provided
+	if len(req.ImageIDs) > 0 {
+		err = h.additionalServiceQueries.ReplaceImages(service.ID, req.ImageIDs)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to associate images with service"})
+			return
+		}
+	}
+
+	response := models.AdditionalServiceResponse{
+		ID:          service.ID,
+		Name:        service.Name,
+		Description: service.Description,
+		Price:       service.Price,
+		CreatedAt:   service.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   service.UpdatedAt.Format(time.RFC3339),
+		Images:      []models.ImageResponse{}, // Will be empty for new service without images
+	}
+
+	c.JSON(http.StatusCreated, response)
+}
+
+func (h *AdminHandler) GetAdditionalService(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid service ID"})
+		return
+	}
+
+	service, err := h.additionalServiceQueries.GetAdditionalServiceByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Additional service not found"})
+		return
+	}
+
+	response := models.AdditionalServiceResponse{
+		ID:          service.ID,
+		Name:        service.Name,
+		Description: service.Description,
+		Price:       service.Price,
+		CreatedAt:   service.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   service.UpdatedAt.Format(time.RFC3339),
+		Images:      service.Images,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) UpdateAdditionalService(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid service ID"})
+		return
+	}
+
+	var req models.AdditionalServiceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if name already exists (excluding current service)
+	exists, err := h.additionalServiceQueries.NameExists(req.Name, &id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check service name"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusConflict, gin.H{"error": "Service name already exists"})
+		return
+	}
+
+	// Validate image IDs if provided
+	for _, imageID := range req.ImageIDs {
+		_, err := h.imageQueries.GetImageByID(imageID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid image ID: %d", imageID)})
+			return
+		}
+	}
+
+	service, err := h.additionalServiceQueries.UpdateAdditionalService(id, req.Name, req.Description, req.Price)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update additional service"})
+		return
+	}
+
+	// Update image associations
+	err = h.additionalServiceQueries.ReplaceImages(service.ID, req.ImageIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update service images"})
+		return
+	}
+
+	// Get updated service with images
+	updatedService, err := h.additionalServiceQueries.GetAdditionalServiceByID(service.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get updated service"})
+		return
+	}
+
+	response := models.AdditionalServiceResponse{
+		ID:          updatedService.ID,
+		Name:        updatedService.Name,
+		Description: updatedService.Description,
+		Price:       updatedService.Price,
+		CreatedAt:   updatedService.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   updatedService.UpdatedAt.Format(time.RFC3339),
+		Images:      updatedService.Images,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) DeleteAdditionalService(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid service ID"})
+		return
+	}
+
+	err = h.additionalServiceQueries.DeleteAdditionalService(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete additional service"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Additional service deleted successfully"})
+}
+
 // Helper functions
 
 func generateUUID() string {
@@ -919,4 +1155,561 @@ func isValidImageType(mimeType string) bool {
 	}
 	
 	return false
+}
+
+// Product Management
+
+func (h *AdminHandler) ListProducts(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	search := c.Query("search")
+	
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+	
+	var categoryID, materialID *int
+	if catID := c.Query("category_id"); catID != "" && catID != "all" {
+		if id, err := strconv.Atoi(catID); err == nil {
+			categoryID = &id
+		}
+	}
+	if matID := c.Query("material_id"); matID != "" && matID != "all" {
+		if id, err := strconv.Atoi(matID); err == nil {
+			materialID = &id
+		}
+	}
+	
+	products, total, err := h.productQueries.ListProducts(page, limit, search, categoryID, materialID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve products"})
+		return
+	}
+	
+	// Convert to response format
+	var responseProducts []models.ProductResponse
+	for _, product := range products {
+		responseProduct := models.ProductResponse{
+			ID:                 product.ID,
+			Name:               product.Name,
+			ShortDescription:   product.ShortDescription,
+			Description:        product.Description,
+			MaterialID:         product.MaterialID,
+			MainImageID:        product.MainImageID,
+			CategoryID:         product.CategoryID,
+			CreatedAt:          product.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:          product.UpdatedAt.Format(time.RFC3339),
+			Material:           product.Material,
+			MainImage:          product.MainImage,
+			Category:           product.Category,
+			Images:             product.Images,
+			AdditionalServices: product.AdditionalServices,
+		}
+		responseProducts = append(responseProducts, responseProduct)
+	}
+	
+	response := models.ProductListResponse{
+		Products: responseProducts,
+		Total:    total,
+		Page:     page,
+		Limit:    limit,
+	}
+	
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) CreateProduct(c *gin.Context) {
+	var req models.ProductRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	
+	// Validate main image exists
+	if !h.validateImageExists(req.MainImageID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Main image not found"})
+		return
+	}
+	
+	// Validate all image IDs exist
+	for _, imageID := range req.ImageIDs {
+		if !h.validateImageExists(imageID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Image with ID %d not found", imageID)})
+			return
+		}
+	}
+	
+	// Validate main image is included in images array
+	mainImageIncluded := false
+	for _, imageID := range req.ImageIDs {
+		if imageID == req.MainImageID {
+			mainImageIncluded = true
+			break
+		}
+	}
+	if !mainImageIncluded {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Main image must be included in the images list"})
+		return
+	}
+	
+	// Validate additional service IDs exist
+	for _, serviceID := range req.AdditionalServiceIDs {
+		if !h.validateAdditionalServiceExists(serviceID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Additional service with ID %d not found", serviceID)})
+			return
+		}
+	}
+	
+	// Validate material exists if provided
+	if req.MaterialID != nil && !h.validateMaterialExists(*req.MaterialID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Material not found"})
+		return
+	}
+	
+	// Validate category exists if provided
+	if req.CategoryID != nil && !h.validateCategoryExists(*req.CategoryID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Category not found"})
+		return
+	}
+	
+	product := &models.Product{
+		Name:             req.Name,
+		ShortDescription: req.ShortDescription,
+		Description:      req.Description,
+		MaterialID:       req.MaterialID,
+		MainImageID:      req.MainImageID,
+		CategoryID:       req.CategoryID,
+	}
+	
+	// Create product
+	err := h.productQueries.CreateProduct(product)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create product"})
+		return
+	}
+	
+	// Set product images
+	err = h.productQueries.ReplaceImages(product.ID, req.ImageIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to set product images"})
+		return
+	}
+	
+	// Set product services
+	err = h.productQueries.ReplaceServices(product.ID, req.AdditionalServiceIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to set product services"})
+		return
+	}
+	
+	// Return the created product with relations
+	createdProduct, err := h.productQueries.GetProduct(product.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve created product"})
+		return
+	}
+	
+	response := models.ProductResponse{
+		ID:                 createdProduct.ID,
+		Name:               createdProduct.Name,
+		ShortDescription:   createdProduct.ShortDescription,
+		Description:        createdProduct.Description,
+		MaterialID:         createdProduct.MaterialID,
+		MainImageID:        createdProduct.MainImageID,
+		CategoryID:         createdProduct.CategoryID,
+		CreatedAt:          createdProduct.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:          createdProduct.UpdatedAt.Format(time.RFC3339),
+		Material:           createdProduct.Material,
+		MainImage:          createdProduct.MainImage,
+		Category:           createdProduct.Category,
+		Images:             createdProduct.Images,
+		AdditionalServices: createdProduct.AdditionalServices,
+	}
+	
+	c.JSON(http.StatusCreated, response)
+}
+
+func (h *AdminHandler) GetProduct(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
+		return
+	}
+	
+	product, err := h.productQueries.GetProduct(id)
+	if err != nil {
+		if err.Error() == "product not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve product"})
+		return
+	}
+	
+	response := models.ProductResponse{
+		ID:                 product.ID,
+		Name:               product.Name,
+		ShortDescription:   product.ShortDescription,
+		Description:        product.Description,
+		MaterialID:         product.MaterialID,
+		MainImageID:        product.MainImageID,
+		CategoryID:         product.CategoryID,
+		CreatedAt:          product.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:          product.UpdatedAt.Format(time.RFC3339),
+		Material:           product.Material,
+		MainImage:          product.MainImage,
+		Category:           product.Category,
+		Images:             product.Images,
+		AdditionalServices: product.AdditionalServices,
+	}
+	
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) UpdateProduct(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
+		return
+	}
+	
+	var req models.ProductRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	
+	// Validate main image exists
+	if !h.validateImageExists(req.MainImageID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Main image not found"})
+		return
+	}
+	
+	// Validate all image IDs exist
+	for _, imageID := range req.ImageIDs {
+		if !h.validateImageExists(imageID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Image with ID %d not found", imageID)})
+			return
+		}
+	}
+	
+	// Validate main image is included in images array
+	mainImageIncluded := false
+	for _, imageID := range req.ImageIDs {
+		if imageID == req.MainImageID {
+			mainImageIncluded = true
+			break
+		}
+	}
+	if !mainImageIncluded {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Main image must be included in the images list"})
+		return
+	}
+	
+	// Validate additional service IDs exist
+	for _, serviceID := range req.AdditionalServiceIDs {
+		if !h.validateAdditionalServiceExists(serviceID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Additional service with ID %d not found", serviceID)})
+			return
+		}
+	}
+	
+	// Validate material exists if provided
+	if req.MaterialID != nil && !h.validateMaterialExists(*req.MaterialID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Material not found"})
+		return
+	}
+	
+	// Validate category exists if provided
+	if req.CategoryID != nil && !h.validateCategoryExists(*req.CategoryID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Category not found"})
+		return
+	}
+	
+	product := &models.Product{
+		Name:             req.Name,
+		ShortDescription: req.ShortDescription,
+		Description:      req.Description,
+		MaterialID:       req.MaterialID,
+		MainImageID:      req.MainImageID,
+		CategoryID:       req.CategoryID,
+	}
+	
+	// Update product
+	err = h.productQueries.UpdateProduct(id, product)
+	if err != nil {
+		if err.Error() == "product not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product"})
+		return
+	}
+	
+	// Update product images
+	err = h.productQueries.ReplaceImages(id, req.ImageIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product images"})
+		return
+	}
+	
+	// Update product services
+	err = h.productQueries.ReplaceServices(id, req.AdditionalServiceIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product services"})
+		return
+	}
+	
+	// Return the updated product with relations
+	updatedProduct, err := h.productQueries.GetProduct(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve updated product"})
+		return
+	}
+	
+	response := models.ProductResponse{
+		ID:                 updatedProduct.ID,
+		Name:               updatedProduct.Name,
+		ShortDescription:   updatedProduct.ShortDescription,
+		Description:        updatedProduct.Description,
+		MaterialID:         updatedProduct.MaterialID,
+		MainImageID:        updatedProduct.MainImageID,
+		CategoryID:         updatedProduct.CategoryID,
+		CreatedAt:          updatedProduct.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:          updatedProduct.UpdatedAt.Format(time.RFC3339),
+		Material:           updatedProduct.Material,
+		MainImage:          updatedProduct.MainImage,
+		Category:           updatedProduct.Category,
+		Images:             updatedProduct.Images,
+		AdditionalServices: updatedProduct.AdditionalServices,
+	}
+	
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) DeleteProduct(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
+		return
+	}
+	
+	err = h.productQueries.DeleteProduct(id)
+	if err != nil {
+		if err.Error() == "product not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{"message": "Product deleted successfully"})
+}
+
+// Validation helper methods for products
+
+func (h *AdminHandler) validateImageExists(imageID int) bool {
+	query := "SELECT 1 FROM images WHERE id = $1"
+	var exists int
+	err := h.db.QueryRow(query, imageID).Scan(&exists)
+	return err == nil
+}
+
+func (h *AdminHandler) validateMaterialExists(materialID int) bool {
+	query := "SELECT 1 FROM materials WHERE id = $1"
+	var exists int
+	err := h.db.QueryRow(query, materialID).Scan(&exists)
+	return err == nil
+}
+
+func (h *AdminHandler) validateCategoryExists(categoryID int) bool {
+	query := "SELECT 1 FROM categories WHERE id = $1"
+	var exists int
+	err := h.db.QueryRow(query, categoryID).Scan(&exists)
+	return err == nil
+}
+
+func (h *AdminHandler) validateAdditionalServiceExists(serviceID int) bool {
+	query := "SELECT 1 FROM additional_services WHERE id = $1"
+	var exists int
+	err := h.db.QueryRow(query, serviceID).Scan(&exists)
+	return err == nil
+}
+
+// Size Management
+
+func (h *AdminHandler) ListSizes(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	search := c.Query("search")
+	
+	var productID *int
+	if productIDStr := c.Query("product_id"); productIDStr != "" {
+		if pid, err := strconv.Atoi(productIDStr); err == nil {
+			productID = &pid
+		}
+	}
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	sizes, total, err := h.sizeQueries.ListSizes(page, limit, search, productID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SizeListResponse{
+		Sizes: sizes,
+		Total: total,
+		Page:  page,
+		Limit: limit,
+	})
+}
+
+func (h *AdminHandler) CreateSize(c *gin.Context) {
+	var req models.SizeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate product exists
+	if !h.validateProductExists(req.ProductID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Product not found"})
+		return
+	}
+
+	size := &models.Size{
+		Name:      req.Name,
+		ProductID: req.ProductID,
+		BasePrice: req.BasePrice,
+		A:         req.A,
+		B:         req.B,
+		C:         req.C,
+		D:         req.D,
+		E:         req.E,
+		F:         req.F,
+	}
+
+	if err := h.sizeQueries.CreateSize(size); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "Size created successfully", "id": size.ID})
+}
+
+func (h *AdminHandler) GetSize(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid size ID"})
+		return
+	}
+
+	size, err := h.sizeQueries.GetSizeByID(id)
+	if err != nil {
+		if err.Error() == "size not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Size not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	response := models.SizeResponse{
+		ID:        size.ID,
+		Name:      size.Name,
+		ProductID: size.ProductID,
+		BasePrice: size.BasePrice,
+		A:         size.A,
+		B:         size.B,
+		C:         size.C,
+		D:         size.D,
+		E:         size.E,
+		F:         size.F,
+		CreatedAt: size.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: size.UpdatedAt.Format(time.RFC3339),
+		Product:   size.Product,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) UpdateSize(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid size ID"})
+		return
+	}
+
+	var req models.SizeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate product exists
+	if !h.validateProductExists(req.ProductID) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Product not found"})
+		return
+	}
+
+	size := &models.Size{
+		ID:        id,
+		Name:      req.Name,
+		ProductID: req.ProductID,
+		BasePrice: req.BasePrice,
+		A:         req.A,
+		B:         req.B,
+		C:         req.C,
+		D:         req.D,
+		E:         req.E,
+		F:         req.F,
+	}
+
+	if err := h.sizeQueries.UpdateSize(id, size); err != nil {
+		if err.Error() == "size not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Size not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Size updated successfully"})
+}
+
+func (h *AdminHandler) DeleteSize(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid size ID"})
+		return
+	}
+
+	if err := h.sizeQueries.DeleteSize(id); err != nil {
+		if err.Error() == "size not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Size not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Size deleted successfully"})
+}
+
+func (h *AdminHandler) validateProductExists(productID int) bool {
+	query := "SELECT 1 FROM products WHERE id = $1"
+	var exists int
+	err := h.db.QueryRow(query, productID).Scan(&exists)
+	return err == nil
 }

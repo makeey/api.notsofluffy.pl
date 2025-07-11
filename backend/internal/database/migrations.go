@@ -97,6 +97,83 @@ func Migrate(db *sql.DB) error {
 		BEFORE UPDATE ON colors
 		FOR EACH ROW
 		EXECUTE FUNCTION update_updated_at_column();`,
+		`CREATE TABLE IF NOT EXISTS additional_services (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(256) NOT NULL UNIQUE,
+			description TEXT NOT NULL,
+			price DECIMAL(10,2) NOT NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_additional_services_name ON additional_services(name);`,
+		`CREATE INDEX IF NOT EXISTS idx_additional_services_price ON additional_services(price);`,
+		`DROP TRIGGER IF EXISTS update_additional_services_updated_at ON additional_services;`,
+		`CREATE TRIGGER update_additional_services_updated_at
+		BEFORE UPDATE ON additional_services
+		FOR EACH ROW
+		EXECUTE FUNCTION update_updated_at_column();`,
+		`CREATE TABLE IF NOT EXISTS additional_service_images (
+			additional_service_id INTEGER NOT NULL REFERENCES additional_services(id) ON DELETE CASCADE,
+			image_id INTEGER NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+			PRIMARY KEY (additional_service_id, image_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_additional_service_images_service_id ON additional_service_images(additional_service_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_additional_service_images_image_id ON additional_service_images(image_id);`,
+		`CREATE TABLE IF NOT EXISTS products (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(256) NOT NULL,
+			short_description VARCHAR(512) NOT NULL,
+			description TEXT NOT NULL,
+			material_id INTEGER REFERENCES materials(id) ON DELETE SET NULL,
+			main_image_id INTEGER NOT NULL REFERENCES images(id) ON DELETE RESTRICT,
+			category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);`,
+		`CREATE INDEX IF NOT EXISTS idx_products_material_id ON products(material_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_products_main_image_id ON products(main_image_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);`,
+		`DROP TRIGGER IF EXISTS update_products_updated_at ON products;`,
+		`CREATE TRIGGER update_products_updated_at
+		BEFORE UPDATE ON products
+		FOR EACH ROW
+		EXECUTE FUNCTION update_updated_at_column();`,
+		`CREATE TABLE IF NOT EXISTS product_images (
+			product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+			image_id INTEGER NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+			PRIMARY KEY (product_id, image_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_product_images_product_id ON product_images(product_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_product_images_image_id ON product_images(image_id);`,
+		`CREATE TABLE IF NOT EXISTS product_services (
+			product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+			additional_service_id INTEGER NOT NULL REFERENCES additional_services(id) ON DELETE CASCADE,
+			PRIMARY KEY (product_id, additional_service_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_product_services_product_id ON product_services(product_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_product_services_service_id ON product_services(additional_service_id);`,
+		`CREATE TABLE IF NOT EXISTS sizes (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(256) NOT NULL,
+			product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+			base_price DECIMAL(10,2) NOT NULL,
+			a DECIMAL(10,2) NOT NULL,
+			b DECIMAL(10,2) NOT NULL,
+			c DECIMAL(10,2) NOT NULL,
+			d DECIMAL(10,2) NOT NULL,
+			e DECIMAL(10,2) NOT NULL,
+			f DECIMAL(10,2) NOT NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_sizes_product_id ON sizes(product_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_sizes_name ON sizes(name);`,
+		`DROP TRIGGER IF EXISTS update_sizes_updated_at ON sizes;`,
+		`CREATE TRIGGER update_sizes_updated_at
+		BEFORE UPDATE ON sizes
+		FOR EACH ROW
+		EXECUTE FUNCTION update_updated_at_column();`,
 	}
 
 	for i, migration := range migrations {

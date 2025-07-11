@@ -93,6 +93,27 @@ func main() {
 		admin.GET("/colors/:id", adminHandler.GetColor)
 		admin.PUT("/colors/:id", adminHandler.UpdateColor)
 		admin.DELETE("/colors/:id", adminHandler.DeleteColor)
+
+		// Additional Service management
+		admin.GET("/additional-services", adminHandler.ListAdditionalServices)
+		admin.POST("/additional-services", adminHandler.CreateAdditionalService)
+		admin.GET("/additional-services/:id", adminHandler.GetAdditionalService)
+		admin.PUT("/additional-services/:id", adminHandler.UpdateAdditionalService)
+		admin.DELETE("/additional-services/:id", adminHandler.DeleteAdditionalService)
+
+		// Product management
+		admin.GET("/products", adminHandler.ListProducts)
+		admin.POST("/products", adminHandler.CreateProduct)
+		admin.GET("/products/:id", adminHandler.GetProduct)
+		admin.PUT("/products/:id", adminHandler.UpdateProduct)
+		admin.DELETE("/products/:id", adminHandler.DeleteProduct)
+
+		// Size management
+		admin.GET("/sizes", adminHandler.ListSizes)
+		admin.POST("/sizes", adminHandler.CreateSize)
+		admin.GET("/sizes/:id", adminHandler.GetSize)
+		admin.PUT("/sizes/:id", adminHandler.UpdateSize)
+		admin.DELETE("/sizes/:id", adminHandler.DeleteSize)
 	}
 
 	port := os.Getenv("PORT")
