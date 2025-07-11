@@ -131,3 +131,63 @@ func (h *PublicHandler) GetPublicProducts(c *gin.Context) {
 		"limit":    limit,
 	})
 }
+
+// GetPublicProduct returns a single product with all details for public access
+func (h *PublicHandler) GetPublicProduct(c *gin.Context) {
+	// Parse product ID from URL
+	productID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid product ID"})
+		return
+	}
+
+	// Get product with all relations
+	product, err := h.productQueries.GetProduct(productID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product", "details": err.Error()})
+		return
+	}
+
+	// Convert to response format
+	productResponse := models.ProductResponse{
+		ID:               product.ID,
+		Name:             product.Name,
+		ShortDescription: product.ShortDescription,
+		Description:      product.Description,
+		MaterialID:       product.MaterialID,
+		MainImageID:      product.MainImageID,
+		CategoryID:       product.CategoryID,
+		CreatedAt:        product.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:        product.UpdatedAt.Format(time.RFC3339),
+		Material:         product.Material,
+		MainImage:        product.MainImage,
+		Category:         product.Category,
+		Images:           product.Images,
+		AdditionalServices: product.AdditionalServices,
+		MinPrice:         product.MinPrice,
+	}
+
+	// Get product variants
+	variants, err := h.productQueries.GetProductVariants(productID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product variants", "details": err.Error()})
+		return
+	}
+
+	// Get product sizes
+	sizes, err := h.productQueries.GetProductSizes(productID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product sizes", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"product":  productResponse,
+		"variants": variants,
+		"sizes":    sizes,
+	})
+}

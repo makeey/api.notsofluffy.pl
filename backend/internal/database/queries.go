@@ -2181,6 +2181,50 @@ func (q *ProductQueries) GetPublicProductsCount(search string, categoryIDs []int
 	return count, nil
 }
 
+// GetProductVariants returns all variants for a specific product
+func (q *ProductQueries) GetProductVariants(productID int) ([]models.ProductVariantResponse, error) {
+	variantQueries := NewProductVariantQueries(q.db)
+	variants, _, err := variantQueries.ListProductVariants(1, 1000, "", &productID, nil)
+	return variants, err
+}
+
+// GetProductSizes returns all sizes for a specific product
+func (q *ProductQueries) GetProductSizes(productID int) ([]models.SizeResponse, error) {
+	query := `
+		SELECT s.id, s.name, s.a, s.b, s.c, s.d, s.e, s.f, 
+			   s.base_price, s.product_id, s.created_at, s.updated_at
+		FROM sizes s
+		WHERE s.product_id = $1
+		ORDER BY s.base_price ASC
+	`
+	
+	rows, err := q.db.Query(query, productID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get product sizes: %w", err)
+	}
+	defer rows.Close()
+	
+	var sizes []models.SizeResponse
+	for rows.Next() {
+		var size models.SizeResponse
+		var createdAt, updatedAt time.Time
+		err := rows.Scan(
+			&size.ID, &size.Name, &size.A, &size.B, &size.C, 
+			&size.D, &size.E, &size.F, &size.BasePrice,
+			&size.ProductID, &createdAt, &updatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan size: %w", err)
+		}
+		
+		size.CreatedAt = createdAt.Format(time.RFC3339)
+		size.UpdatedAt = updatedAt.Format(time.RFC3339)
+		sizes = append(sizes, size)
+	}
+	
+	return sizes, nil
+}
+
 // Size queries
 type SizeQueries struct {
 	db *sql.DB

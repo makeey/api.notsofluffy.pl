@@ -54,6 +54,7 @@ func main() {
 	{
 		public.GET("/categories", publicHandler.GetActiveCategories)
 		public.GET("/products", publicHandler.GetPublicProducts)
+		public.GET("/products/:id", publicHandler.GetPublicProduct)
 	}
 
 	// Auth routes
