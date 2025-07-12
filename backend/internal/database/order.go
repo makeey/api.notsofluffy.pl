@@ -1,7 +1,9 @@
 package database
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -11,6 +13,15 @@ import (
 
 type OrderQueries struct {
 	db *sql.DB
+}
+
+// generatePublicHash generates a secure random hash for public order access
+func generatePublicHash() (string, error) {
+	bytes := make([]byte, 16) // 128 bits
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("failed to generate random bytes: %w", err)
+	}
+	return hex.EncodeToString(bytes), nil
 }
 
 func NewOrderQueries(db *sql.DB) *OrderQueries {
@@ -25,13 +36,20 @@ func (q *OrderQueries) CreateOrder(order *models.Order, shippingAddr *models.Shi
 	}
 	defer tx.Rollback()
 
+	// Generate public hash for guest order access
+	publicHash, err := generatePublicHash()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate public hash: %w", err)
+	}
+	order.PublicHash = &publicHash
+
 	// Insert order
 	orderQuery := `
-		INSERT INTO orders (user_id, session_id, email, phone, status, total_amount, subtotal, shipping_cost, tax_amount, payment_method, payment_status, notes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO orders (user_id, session_id, public_hash, email, phone, status, total_amount, subtotal, shipping_cost, tax_amount, payment_method, payment_status, notes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_at, updated_at`
 	
-	err = tx.QueryRow(orderQuery, order.UserID, order.SessionID, order.Email, order.Phone, order.Status, order.TotalAmount, order.Subtotal, order.ShippingCost, order.TaxAmount, order.PaymentMethod, order.PaymentStatus, order.Notes).Scan(&order.ID, &order.CreatedAt, &order.UpdatedAt)
+	err = tx.QueryRow(orderQuery, order.UserID, order.SessionID, order.PublicHash, order.Email, order.Phone, order.Status, order.TotalAmount, order.Subtotal, order.ShippingCost, order.TaxAmount, order.PaymentMethod, order.PaymentStatus, order.Notes).Scan(&order.ID, &order.CreatedAt, &order.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert order: %w", err)
 	}
@@ -110,6 +128,7 @@ func (q *OrderQueries) CreateOrder(order *models.Order, shippingAddr *models.Shi
 		ID:              order.ID,
 		UserID:          order.UserID,
 		SessionID:       order.SessionID,
+		PublicHash:      order.PublicHash,
 		Email:           order.Email,
 		Status:          order.Status,
 		TotalAmount:     order.TotalAmount,
@@ -131,12 +150,12 @@ func (q *OrderQueries) CreateOrder(order *models.Order, shippingAddr *models.Shi
 func (q *OrderQueries) GetOrderByID(id int) (*models.OrderResponse, error) {
 	// Get order
 	orderQuery := `
-		SELECT id, user_id, session_id, email, phone, status, total_amount, subtotal, shipping_cost, tax_amount, payment_method, payment_status, notes, created_at, updated_at
+		SELECT id, user_id, session_id, public_hash, email, phone, status, total_amount, subtotal, shipping_cost, tax_amount, payment_method, payment_status, notes, created_at, updated_at
 		FROM orders
 		WHERE id = $1`
 	
 	var order models.Order
-	err := q.db.QueryRow(orderQuery, id).Scan(&order.ID, &order.UserID, &order.SessionID, &order.Email, &order.Phone, &order.Status, &order.TotalAmount, &order.Subtotal, &order.ShippingCost, &order.TaxAmount, &order.PaymentMethod, &order.PaymentStatus, &order.Notes, &order.CreatedAt, &order.UpdatedAt)
+	err := q.db.QueryRow(orderQuery, id).Scan(&order.ID, &order.UserID, &order.SessionID, &order.PublicHash, &order.Email, &order.Phone, &order.Status, &order.TotalAmount, &order.Subtotal, &order.ShippingCost, &order.TaxAmount, &order.PaymentMethod, &order.PaymentStatus, &order.Notes, &order.CreatedAt, &order.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("order not found")
@@ -170,12 +189,15 @@ func (q *OrderQueries) GetOrderByID(id int) (*models.OrderResponse, error) {
 	}
 	billingAddr.OrderID = id
 
-	// Get order items
+	// Get order items with product images
 	itemsQuery := `
-		SELECT id, product_id, product_name, product_description, variant_id, variant_name, variant_color_name, variant_color_custom, size_id, size_name, size_dimensions, quantity, unit_price, total_price, created_at
-		FROM order_items
-		WHERE order_id = $1
-		ORDER BY id`
+		SELECT oi.id, oi.product_id, oi.product_name, oi.product_description, oi.variant_id, oi.variant_name, oi.variant_color_name, oi.variant_color_custom, oi.size_id, oi.size_name, oi.size_dimensions, oi.quantity, oi.unit_price, oi.total_price, oi.created_at,
+		       mi.id as main_image_id, mi.filename as main_image_filename, mi.original_name as main_image_original_name, mi.path as main_image_path, mi.size_bytes as main_image_size_bytes, mi.mime_type as main_image_mime_type, mi.uploaded_by as main_image_uploaded_by, mi.created_at as main_image_created_at, mi.updated_at as main_image_updated_at
+		FROM order_items oi
+		LEFT JOIN products p ON oi.product_id = p.id
+		LEFT JOIN images mi ON p.main_image_id = mi.id
+		WHERE oi.order_id = $1
+		ORDER BY oi.id`
 	
 	rows, err := q.db.Query(itemsQuery, id)
 	if err != nil {
@@ -187,8 +209,14 @@ func (q *OrderQueries) GetOrderByID(id int) (*models.OrderResponse, error) {
 	for rows.Next() {
 		var item models.OrderItem
 		var dimensionsJSON []byte
+		var mainImageID sql.NullInt64
+		var mainImageFilename, mainImageOriginalName, mainImagePath, mainImageMimeType sql.NullString
+		var mainImageSizeBytes sql.NullInt64
+		var mainImageUploadedBy sql.NullInt64
+		var mainImageCreatedAt, mainImageUpdatedAt sql.NullTime
 		
-		err := rows.Scan(&item.ID, &item.ProductID, &item.ProductName, &item.ProductDescription, &item.VariantID, &item.VariantName, &item.VariantColorName, &item.VariantColorCustom, &item.SizeID, &item.SizeName, &dimensionsJSON, &item.Quantity, &item.UnitPrice, &item.TotalPrice, &item.CreatedAt)
+		err := rows.Scan(&item.ID, &item.ProductID, &item.ProductName, &item.ProductDescription, &item.VariantID, &item.VariantName, &item.VariantColorName, &item.VariantColorCustom, &item.SizeID, &item.SizeName, &dimensionsJSON, &item.Quantity, &item.UnitPrice, &item.TotalPrice, &item.CreatedAt,
+			&mainImageID, &mainImageFilename, &mainImageOriginalName, &mainImagePath, &mainImageSizeBytes, &mainImageMimeType, &mainImageUploadedBy, &mainImageCreatedAt, &mainImageUpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan order item: %w", err)
 		}
@@ -198,6 +226,21 @@ func (q *OrderQueries) GetOrderByID(id int) (*models.OrderResponse, error) {
 			err = json.Unmarshal(dimensionsJSON, &item.SizeDimensions)
 			if err != nil {
 				return nil, fmt.Errorf("failed to unmarshal size dimensions: %w", err)
+			}
+		}
+		
+		// Add main image if available
+		if mainImageID.Valid {
+			item.MainImage = &models.ImageResponse{
+				ID:           int(mainImageID.Int64),
+				Filename:     mainImageFilename.String,
+				OriginalName: mainImageOriginalName.String,
+				Path:         mainImagePath.String,
+				SizeBytes:    mainImageSizeBytes.Int64,
+				MimeType:     mainImageMimeType.String,
+				UploadedBy:   int(mainImageUploadedBy.Int64),
+				CreatedAt:    mainImageCreatedAt.Time.Format("2006-01-02T15:04:05Z07:00"),
+				UpdatedAt:    mainImageUpdatedAt.Time.Format("2006-01-02T15:04:05Z07:00"),
 			}
 		}
 		
@@ -236,6 +279,159 @@ func (q *OrderQueries) GetOrderByID(id int) (*models.OrderResponse, error) {
 		ID:              order.ID,
 		UserID:          order.UserID,
 		SessionID:       order.SessionID,
+		PublicHash:      order.PublicHash,
+		Email:           order.Email,
+		Phone:           order.Phone,
+		Status:          order.Status,
+		TotalAmount:     order.TotalAmount,
+		Subtotal:        order.Subtotal,
+		ShippingCost:    order.ShippingCost,
+		TaxAmount:       order.TaxAmount,
+		PaymentMethod:   order.PaymentMethod,
+		PaymentStatus:   order.PaymentStatus,
+		Notes:           order.Notes,
+		ShippingAddress: &shippingAddr,
+		BillingAddress:  &billingAddr,
+		Items:           items,
+		CreatedAt:       order.CreatedAt,
+		UpdatedAt:       order.UpdatedAt,
+	}, nil
+}
+
+// GetOrderByHash retrieves an order by public hash for guest access
+func (q *OrderQueries) GetOrderByHash(hash string) (*models.OrderResponse, error) {
+	// Get order
+	orderQuery := `
+		SELECT id, user_id, session_id, public_hash, email, phone, status, total_amount, subtotal, shipping_cost, tax_amount, payment_method, payment_status, notes, created_at, updated_at
+		FROM orders
+		WHERE public_hash = $1`
+	
+	var order models.Order
+	err := q.db.QueryRow(orderQuery, hash).Scan(&order.ID, &order.UserID, &order.SessionID, &order.PublicHash, &order.Email, &order.Phone, &order.Status, &order.TotalAmount, &order.Subtotal, &order.ShippingCost, &order.TaxAmount, &order.PaymentMethod, &order.PaymentStatus, &order.Notes, &order.CreatedAt, &order.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("order not found")
+		}
+		return nil, fmt.Errorf("failed to get order: %w", err)
+	}
+
+	// Get shipping address
+	shippingQuery := `
+		SELECT id, first_name, last_name, company, address_line1, address_line2, city, state_province, postal_code, country, phone, created_at
+		FROM shipping_addresses
+		WHERE order_id = $1`
+	
+	var shippingAddr models.ShippingAddress
+	err = q.db.QueryRow(shippingQuery, order.ID).Scan(&shippingAddr.ID, &shippingAddr.FirstName, &shippingAddr.LastName, &shippingAddr.Company, &shippingAddr.AddressLine1, &shippingAddr.AddressLine2, &shippingAddr.City, &shippingAddr.StateProvince, &shippingAddr.PostalCode, &shippingAddr.Country, &shippingAddr.Phone, &shippingAddr.CreatedAt)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to get shipping address: %w", err)
+	}
+	shippingAddr.OrderID = order.ID
+
+	// Get billing address
+	billingQuery := `
+		SELECT id, first_name, last_name, company, address_line1, address_line2, city, state_province, postal_code, country, phone, same_as_shipping, created_at
+		FROM billing_addresses
+		WHERE order_id = $1`
+	
+	var billingAddr models.BillingAddress
+	err = q.db.QueryRow(billingQuery, order.ID).Scan(&billingAddr.ID, &billingAddr.FirstName, &billingAddr.LastName, &billingAddr.Company, &billingAddr.AddressLine1, &billingAddr.AddressLine2, &billingAddr.City, &billingAddr.StateProvince, &billingAddr.PostalCode, &billingAddr.Country, &billingAddr.Phone, &billingAddr.SameAsShipping, &billingAddr.CreatedAt)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to get billing address: %w", err)
+	}
+	billingAddr.OrderID = order.ID
+
+	// Get order items with product images
+	itemsQuery := `
+		SELECT oi.id, oi.product_id, oi.product_name, oi.product_description, oi.variant_id, oi.variant_name, oi.variant_color_name, oi.variant_color_custom, oi.size_id, oi.size_name, oi.size_dimensions, oi.quantity, oi.unit_price, oi.total_price, oi.created_at,
+		       mi.id as main_image_id, mi.filename as main_image_filename, mi.original_name as main_image_original_name, mi.path as main_image_path, mi.size_bytes as main_image_size_bytes, mi.mime_type as main_image_mime_type, mi.uploaded_by as main_image_uploaded_by, mi.created_at as main_image_created_at, mi.updated_at as main_image_updated_at
+		FROM order_items oi
+		LEFT JOIN products p ON oi.product_id = p.id
+		LEFT JOIN images mi ON p.main_image_id = mi.id
+		WHERE oi.order_id = $1
+		ORDER BY oi.id`
+	
+	rows, err := q.db.Query(itemsQuery, order.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get order items: %w", err)
+	}
+	defer rows.Close()
+
+	var items []models.OrderItem
+	for rows.Next() {
+		var item models.OrderItem
+		var dimensionsJSON []byte
+		var mainImageID sql.NullInt64
+		var mainImageFilename, mainImageOriginalName, mainImagePath, mainImageMimeType sql.NullString
+		var mainImageSizeBytes sql.NullInt64
+		var mainImageUploadedBy sql.NullInt64
+		var mainImageCreatedAt, mainImageUpdatedAt sql.NullTime
+		
+		err := rows.Scan(&item.ID, &item.ProductID, &item.ProductName, &item.ProductDescription, &item.VariantID, &item.VariantName, &item.VariantColorName, &item.VariantColorCustom, &item.SizeID, &item.SizeName, &dimensionsJSON, &item.Quantity, &item.UnitPrice, &item.TotalPrice, &item.CreatedAt,
+			&mainImageID, &mainImageFilename, &mainImageOriginalName, &mainImagePath, &mainImageSizeBytes, &mainImageMimeType, &mainImageUploadedBy, &mainImageCreatedAt, &mainImageUpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan order item: %w", err)
+		}
+		
+		// Parse size dimensions
+		if dimensionsJSON != nil {
+			err = json.Unmarshal(dimensionsJSON, &item.SizeDimensions)
+			if err != nil {
+				return nil, fmt.Errorf("failed to unmarshal size dimensions: %w", err)
+			}
+		}
+		
+		// Add main image if available
+		if mainImageID.Valid {
+			item.MainImage = &models.ImageResponse{
+				ID:           int(mainImageID.Int64),
+				Filename:     mainImageFilename.String,
+				OriginalName: mainImageOriginalName.String,
+				Path:         mainImagePath.String,
+				SizeBytes:    mainImageSizeBytes.Int64,
+				MimeType:     mainImageMimeType.String,
+				UploadedBy:   int(mainImageUploadedBy.Int64),
+				CreatedAt:    mainImageCreatedAt.Time.Format("2006-01-02T15:04:05Z07:00"),
+				UpdatedAt:    mainImageUpdatedAt.Time.Format("2006-01-02T15:04:05Z07:00"),
+			}
+		}
+		
+		item.OrderID = order.ID
+		items = append(items, item)
+	}
+
+	// Get services for each item
+	for i := range items {
+		servicesQuery := `
+			SELECT id, service_id, service_name, service_description, service_price, created_at
+			FROM order_item_services
+			WHERE order_item_id = $1
+			ORDER BY id`
+		
+		serviceRows, err := q.db.Query(servicesQuery, items[i].ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get order item services: %w", err)
+		}
+		defer serviceRows.Close()
+
+		var services []models.OrderItemService
+		for serviceRows.Next() {
+			var service models.OrderItemService
+			err := serviceRows.Scan(&service.ID, &service.ServiceID, &service.ServiceName, &service.ServiceDescription, &service.ServicePrice, &service.CreatedAt)
+			if err != nil {
+				return nil, fmt.Errorf("failed to scan order item service: %w", err)
+			}
+			service.OrderItemID = items[i].ID
+			services = append(services, service)
+		}
+		items[i].Services = services
+	}
+
+	return &models.OrderResponse{
+		ID:              order.ID,
+		UserID:          order.UserID,
+		SessionID:       order.SessionID,
+		PublicHash:      order.PublicHash,
 		Email:           order.Email,
 		Phone:           order.Phone,
 		Status:          order.Status,
@@ -435,12 +631,15 @@ func (q *OrderQueries) GetOrdersByUserIDWithItems(userID int, page, limit int) (
 			return nil, fmt.Errorf("failed to get billing address: %w", err)
 		}
 
-		// Get order items for this order
+		// Get order items for this order with product images
 		itemsQuery := `
-			SELECT id, product_id, product_name, product_description, variant_id, variant_name, variant_color_name, variant_color_custom, size_id, size_name, size_dimensions, quantity, unit_price, total_price, created_at
-			FROM order_items
-			WHERE order_id = $1
-			ORDER BY id`
+			SELECT oi.id, oi.product_id, oi.product_name, oi.product_description, oi.variant_id, oi.variant_name, oi.variant_color_name, oi.variant_color_custom, oi.size_id, oi.size_name, oi.size_dimensions, oi.quantity, oi.unit_price, oi.total_price, oi.created_at,
+			       mi.id as main_image_id, mi.filename as main_image_filename, mi.original_name as main_image_original_name, mi.path as main_image_path, mi.size_bytes as main_image_size_bytes, mi.mime_type as main_image_mime_type, mi.uploaded_by as main_image_uploaded_by, mi.created_at as main_image_created_at, mi.updated_at as main_image_updated_at
+			FROM order_items oi
+			LEFT JOIN products p ON oi.product_id = p.id
+			LEFT JOIN images mi ON p.main_image_id = mi.id
+			WHERE oi.order_id = $1
+			ORDER BY oi.id`
 		
 		itemRows, err := q.db.Query(itemsQuery, order.ID)
 		if err != nil {
@@ -451,8 +650,14 @@ func (q *OrderQueries) GetOrdersByUserIDWithItems(userID int, page, limit int) (
 		for itemRows.Next() {
 			var item models.OrderItem
 			var dimensionsJSON []byte
+			var mainImageID sql.NullInt64
+			var mainImageFilename, mainImageOriginalName, mainImagePath, mainImageMimeType sql.NullString
+			var mainImageSizeBytes sql.NullInt64
+			var mainImageUploadedBy sql.NullInt64
+			var mainImageCreatedAt, mainImageUpdatedAt sql.NullTime
 			
-			err := itemRows.Scan(&item.ID, &item.ProductID, &item.ProductName, &item.ProductDescription, &item.VariantID, &item.VariantName, &item.VariantColorName, &item.VariantColorCustom, &item.SizeID, &item.SizeName, &dimensionsJSON, &item.Quantity, &item.UnitPrice, &item.TotalPrice, &item.CreatedAt)
+			err := itemRows.Scan(&item.ID, &item.ProductID, &item.ProductName, &item.ProductDescription, &item.VariantID, &item.VariantName, &item.VariantColorName, &item.VariantColorCustom, &item.SizeID, &item.SizeName, &dimensionsJSON, &item.Quantity, &item.UnitPrice, &item.TotalPrice, &item.CreatedAt,
+				&mainImageID, &mainImageFilename, &mainImageOriginalName, &mainImagePath, &mainImageSizeBytes, &mainImageMimeType, &mainImageUploadedBy, &mainImageCreatedAt, &mainImageUpdatedAt)
 			if err != nil {
 				itemRows.Close()
 				return nil, fmt.Errorf("failed to scan order item: %w", err)
@@ -464,6 +669,21 @@ func (q *OrderQueries) GetOrdersByUserIDWithItems(userID int, page, limit int) (
 				if err != nil {
 					itemRows.Close()
 					return nil, fmt.Errorf("failed to unmarshal size dimensions: %w", err)
+				}
+			}
+			
+			// Add main image if available
+			if mainImageID.Valid {
+				item.MainImage = &models.ImageResponse{
+					ID:           int(mainImageID.Int64),
+					Filename:     mainImageFilename.String,
+					OriginalName: mainImageOriginalName.String,
+					Path:         mainImagePath.String,
+					SizeBytes:    mainImageSizeBytes.Int64,
+					MimeType:     mainImageMimeType.String,
+					UploadedBy:   int(mainImageUploadedBy.Int64),
+					CreatedAt:    mainImageCreatedAt.Time.Format("2006-01-02T15:04:05Z07:00"),
+					UpdatedAt:    mainImageUpdatedAt.Time.Format("2006-01-02T15:04:05Z07:00"),
 				}
 			}
 			

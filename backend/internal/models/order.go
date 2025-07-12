@@ -26,6 +26,7 @@ type Order struct {
 	ID            int       `json:"id"`
 	UserID        *int      `json:"user_id,omitempty"`
 	SessionID     *string   `json:"session_id,omitempty"`
+	PublicHash    *string   `json:"public_hash,omitempty"`
 	Email         string    `json:"email"`
 	Phone         string    `json:"phone"`
 	Status        string    `json:"status"`
@@ -92,6 +93,7 @@ type OrderItem struct {
 	Quantity             int                     `json:"quantity"`
 	UnitPrice            float64                 `json:"unit_price"`
 	TotalPrice           float64                 `json:"total_price"`
+	MainImage            *ImageResponse          `json:"main_image,omitempty"`
 	Services             []OrderItemService      `json:"services,omitempty"`
 	CreatedAt            time.Time               `json:"created_at"`
 }
@@ -139,6 +141,7 @@ type OrderResponse struct {
 	ID              int                     `json:"id"`
 	UserID          *int                    `json:"user_id,omitempty"`
 	SessionID       *string                 `json:"session_id,omitempty"`
+	PublicHash      *string                 `json:"public_hash,omitempty"`
 	Email           string                  `json:"email"`
 	Phone           string                  `json:"phone"`
 	Status          string                  `json:"status"`

@@ -81,3 +81,4 @@ Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-
 [GIN] 2025/07/12 - 00:48:42 | 200 |    7.043088ms |             ::1 | GET      "/api/cart"
 [GIN] 2025/07/12 - 00:48:42 | 204 |       8.544µs |             ::1 | OPTIONS  "/api/user/orders"
 [GIN] 2025/07/12 - 00:48:42 | 200 |    1.864905ms |             ::1 | GET      "/api/user/orders"
+signal: killed

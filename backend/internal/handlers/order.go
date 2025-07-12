@@ -404,3 +404,24 @@ func (h *OrderHandler) GetUserOrders(c *gin.Context) {
 
 	c.JSON(http.StatusOK, orders)
 }
+
+// GetOrderByHash retrieves an order by public hash for guest access
+func (h *OrderHandler) GetOrderByHash(c *gin.Context) {
+	hash := c.Param("hash")
+	if hash == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Hash is required"})
+		return
+	}
+
+	order, err := h.orderQueries.GetOrderByHash(hash)
+	if err != nil {
+		if err.Error() == "order not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get order"})
+		return
+	}
+
+	c.JSON(http.StatusOK, order)
+}

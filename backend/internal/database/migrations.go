@@ -361,6 +361,10 @@ func Migrate(db *sql.DB) error {
 		`UPDATE sizes SET use_stock = FALSE, stock_quantity = 0, reserved_quantity = 0 WHERE use_stock IS NULL;`,
 		`CREATE INDEX IF NOT EXISTS idx_sizes_use_stock ON sizes(use_stock);`,
 		`CREATE INDEX IF NOT EXISTS idx_sizes_stock_quantity ON sizes(stock_quantity);`,
+
+		// Add public_hash column to orders table for guest order access
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS public_hash VARCHAR(64) UNIQUE;`,
+		`CREATE INDEX IF NOT EXISTS idx_orders_public_hash ON orders(public_hash);`,
 	}
 
 	for i, migration := range migrations {

@@ -95,6 +95,7 @@ func main() {
 	{
 		orders.POST("", middleware.OptionalAuthMiddleware(cfg.JWTSecret), orderHandler.CreateOrder)
 		orders.GET("/:id", orderHandler.GetOrder)
+		orders.GET("/hash/:hash", orderHandler.GetOrderByHash)
 	}
 
 	// User routes (authenticated)
