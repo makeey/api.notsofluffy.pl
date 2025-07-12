@@ -55,6 +55,7 @@ func main() {
 	adminHandler := handlers.NewAdminHandler(db)
 	publicHandler := handlers.NewPublicHandler(db)
 	cartHandler := handlers.NewCartHandler(db)
+	profileHandler := handlers.NewProfileHandler(db)
 	
 	// Initialize order handler
 	orderQueries := database.NewOrderQueries(db)
@@ -103,6 +104,17 @@ func main() {
 	user.Use(middleware.AuthMiddleware(cfg.JWTSecret))
 	{
 		user.GET("/orders", orderHandler.GetUserOrders)
+		
+		// Profile management
+		user.GET("/profile", profileHandler.GetProfile)
+		user.PUT("/profile", profileHandler.UpdateProfile)
+		
+		// Address management
+		user.GET("/addresses", profileHandler.GetAddresses)
+		user.POST("/addresses", profileHandler.CreateAddress)
+		user.PUT("/addresses/:id", profileHandler.UpdateAddress)
+		user.DELETE("/addresses/:id", profileHandler.DeleteAddress)
+		user.PATCH("/addresses/:id/default", profileHandler.SetDefaultAddress)
 	}
 
 	// Admin routes

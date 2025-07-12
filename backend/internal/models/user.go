@@ -449,3 +449,91 @@ type ProductVariantListResponse struct {
 	Page            int                      `json:"page"`
 	Limit           int                      `json:"limit"`
 }
+
+// User Profile models
+type UserProfile struct {
+	ID        int       `json:"id"`
+	UserID    int       `json:"user_id"`
+	FirstName *string   `json:"first_name,omitempty"`
+	LastName  *string   `json:"last_name,omitempty"`
+	Phone     *string   `json:"phone,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type UserAddress struct {
+	ID           int       `json:"id"`
+	UserID       int       `json:"user_id"`
+	Label        string    `json:"label"`
+	FirstName    string    `json:"first_name"`
+	LastName     string    `json:"last_name"`
+	Company      *string   `json:"company,omitempty"`
+	AddressLine1 string    `json:"address_line1"`
+	AddressLine2 *string   `json:"address_line2,omitempty"`
+	City         string    `json:"city"`
+	StateProvince string   `json:"state_province"`
+	PostalCode   string    `json:"postal_code"`
+	Country      string    `json:"country"`
+	Phone        *string   `json:"phone,omitempty"`
+	IsDefault    bool      `json:"is_default"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// Request/Response types for User Profile
+type UserProfileRequest struct {
+	FirstName *string `json:"first_name,omitempty"`
+	LastName  *string `json:"last_name,omitempty"`
+	Phone     *string `json:"phone,omitempty"`
+}
+
+type UserProfileResponse struct {
+	ID        int                     `json:"id"`
+	UserID    int                     `json:"user_id"`
+	FirstName *string                 `json:"first_name,omitempty"`
+	LastName  *string                 `json:"last_name,omitempty"`
+	Phone     *string                 `json:"phone,omitempty"`
+	CreatedAt string                  `json:"created_at"`
+	UpdatedAt string                  `json:"updated_at"`
+	Addresses []UserAddressResponse   `json:"addresses"`
+}
+
+// Request/Response types for User Address
+type UserAddressRequest struct {
+	Label        string  `json:"label" binding:"required,min=1,max=100"`
+	FirstName    string  `json:"first_name" binding:"required,min=1,max=100"`
+	LastName     string  `json:"last_name" binding:"required,min=1,max=100"`
+	Company      *string `json:"company,omitempty"`
+	AddressLine1 string  `json:"address_line1" binding:"required,min=1,max=255"`
+	AddressLine2 *string `json:"address_line2,omitempty"`
+	City         string  `json:"city" binding:"required,min=1,max=100"`
+	StateProvince string `json:"state_province" binding:"required,min=1,max=100"`
+	PostalCode   string  `json:"postal_code" binding:"required,min=1,max=20"`
+	Country      string  `json:"country" binding:"required,min=1,max=100"`
+	Phone        *string `json:"phone,omitempty"`
+	IsDefault    bool    `json:"is_default"`
+}
+
+type UserAddressResponse struct {
+	ID           int     `json:"id"`
+	UserID       int     `json:"user_id"`
+	Label        string  `json:"label"`
+	FirstName    string  `json:"first_name"`
+	LastName     string  `json:"last_name"`
+	Company      *string `json:"company,omitempty"`
+	AddressLine1 string  `json:"address_line1"`
+	AddressLine2 *string `json:"address_line2,omitempty"`
+	City         string  `json:"city"`
+	StateProvince string `json:"state_province"`
+	PostalCode   string  `json:"postal_code"`
+	Country      string  `json:"country"`
+	Phone        *string `json:"phone,omitempty"`
+	IsDefault    bool    `json:"is_default"`
+	CreatedAt    string  `json:"created_at"`
+	UpdatedAt    string  `json:"updated_at"`
+}
+
+type UserAddressListResponse struct {
+	Addresses []UserAddressResponse `json:"addresses"`
+	Total     int                   `json:"total"`
+}

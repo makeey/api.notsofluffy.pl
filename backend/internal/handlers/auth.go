@@ -12,14 +12,16 @@ import (
 )
 
 type AuthHandler struct {
-	userQueries *database.UserQueries
-	jwtSecret   string
+	userQueries    *database.UserQueries
+	profileQueries *database.ProfileQueries
+	jwtSecret      string
 }
 
 func NewAuthHandler(db *sql.DB, jwtSecret string) *AuthHandler {
 	return &AuthHandler{
-		userQueries: database.NewUserQueries(db),
-		jwtSecret:   jwtSecret,
+		userQueries:    database.NewUserQueries(db),
+		profileQueries: database.NewProfileQueries(db),
+		jwtSecret:      jwtSecret,
 	}
 }
 
@@ -70,6 +72,13 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	if err := h.userQueries.CreateUser(user); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
+	}
+
+	// Create user profile
+	_, err = h.profileQueries.CreateUserProfile(user.ID)
+	if err != nil {
+		// Log error but don't fail registration
+		// TODO: implement proper logging
 	}
 
 	// Generate tokens

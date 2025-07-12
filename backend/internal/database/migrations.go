@@ -365,6 +365,50 @@ func Migrate(db *sql.DB) error {
 		// Add public_hash column to orders table for guest order access
 		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS public_hash VARCHAR(64) UNIQUE;`,
 		`CREATE INDEX IF NOT EXISTS idx_orders_public_hash ON orders(public_hash);`,
+
+		// User profiles table for extended user information
+		`CREATE TABLE IF NOT EXISTS user_profiles (
+			id SERIAL PRIMARY KEY,
+			user_id INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			first_name VARCHAR(100),
+			last_name VARCHAR(100),
+			phone VARCHAR(50),
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_user_profiles_user_id ON user_profiles(user_id);`,
+		`DROP TRIGGER IF EXISTS update_user_profiles_updated_at ON user_profiles;`,
+		`CREATE TRIGGER update_user_profiles_updated_at
+		BEFORE UPDATE ON user_profiles
+		FOR EACH ROW
+		EXECUTE FUNCTION update_updated_at_column();`,
+
+		// User addresses table for saved shipping addresses
+		`CREATE TABLE IF NOT EXISTS user_addresses (
+			id SERIAL PRIMARY KEY,
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			label VARCHAR(100) NOT NULL,
+			first_name VARCHAR(100) NOT NULL,
+			last_name VARCHAR(100) NOT NULL,
+			company VARCHAR(100),
+			address_line1 VARCHAR(255) NOT NULL,
+			address_line2 VARCHAR(255),
+			city VARCHAR(100) NOT NULL,
+			state_province VARCHAR(100) NOT NULL,
+			postal_code VARCHAR(20) NOT NULL,
+			country VARCHAR(100) NOT NULL DEFAULT 'Poland',
+			phone VARCHAR(50),
+			is_default BOOLEAN DEFAULT FALSE,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_user_addresses_user_id ON user_addresses(user_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_user_addresses_is_default ON user_addresses(is_default);`,
+		`DROP TRIGGER IF EXISTS update_user_addresses_updated_at ON user_addresses;`,
+		`CREATE TRIGGER update_user_addresses_updated_at
+		BEFORE UPDATE ON user_addresses
+		FOR EACH ROW
+		EXECUTE FUNCTION update_updated_at_column();`,
 	}
 
 	for i, migration := range migrations {
