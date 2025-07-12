@@ -266,6 +266,15 @@ func Migrate(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_orders_email ON orders(email);`,
 		`CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);`,
 		`CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);`,
+		
+		// Add invoice fields to existing orders table
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS requires_invoice BOOLEAN DEFAULT false;`,
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS nip VARCHAR(20);`,
+		
+		// Create indexes for invoice fields after adding the columns
+		`CREATE INDEX IF NOT EXISTS idx_orders_requires_invoice ON orders(requires_invoice);`,
+		`CREATE INDEX IF NOT EXISTS idx_orders_nip ON orders(nip);`,
+		
 		`DROP TRIGGER IF EXISTS update_orders_updated_at ON orders;`,
 		`CREATE TRIGGER update_orders_updated_at
 		BEFORE UPDATE ON orders

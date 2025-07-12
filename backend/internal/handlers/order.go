@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"notsofluffy-backend/internal/database"
@@ -23,12 +25,43 @@ func NewOrderHandler(orderQueries *database.OrderQueries, cartQueries *database.
 	}
 }
 
+// validateNIP validates Polish NIP (tax identification number)
+func validateNIP(nip string) bool {
+	// Remove any non-digit characters
+	nipDigits := regexp.MustCompile(`\D`).ReplaceAllString(nip, "")
+	
+	// NIP must be exactly 10 digits
+	if len(nipDigits) != 10 {
+		return false
+	}
+	
+	// Basic format check - all digits
+	if matched, _ := regexp.MatchString(`^\d{10}$`, nipDigits); !matched {
+		return false
+	}
+	
+	return true
+}
+
 // CreateOrder creates a new order from cart
 func (h *OrderHandler) CreateOrder(c *gin.Context) {
 	var req models.OrderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Validate invoice requirements
+	if req.RequiresInvoice {
+		if req.NIP == nil || strings.TrimSpace(*req.NIP) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "NIP is required when invoice is requested"})
+			return
+		}
+		
+		if !validateNIP(*req.NIP) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid NIP format. NIP must be 10 digits."})
+			return
+		}
 	}
 
 	// Get session ID
@@ -89,18 +122,20 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 
 	// Create order
 	order := &models.Order{
-		UserID:        userID,
-		SessionID:     &sessionIDStr,
-		Email:         req.Email,
-		Phone:         req.Phone,
-		Status:        models.OrderStatusPending,
-		TotalAmount:   totalAmount,
-		Subtotal:      subtotal,
-		ShippingCost:  shippingCost,
-		TaxAmount:     taxAmount,
-		PaymentMethod: req.PaymentMethod,
-		PaymentStatus: models.PaymentStatusPending,
-		Notes:         req.Notes,
+		UserID:          userID,
+		SessionID:       &sessionIDStr,
+		Email:           req.Email,
+		Phone:           req.Phone,
+		Status:          models.OrderStatusPending,
+		TotalAmount:     totalAmount,
+		Subtotal:        subtotal,
+		ShippingCost:    shippingCost,
+		TaxAmount:       taxAmount,
+		PaymentMethod:   req.PaymentMethod,
+		PaymentStatus:   models.PaymentStatusPending,
+		Notes:           req.Notes,
+		RequiresInvoice: req.RequiresInvoice,
+		NIP:             req.NIP,
 	}
 
 	// Create shipping address

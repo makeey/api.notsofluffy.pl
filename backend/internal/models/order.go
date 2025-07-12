@@ -34,11 +34,13 @@ type Order struct {
 	Subtotal      float64   `json:"subtotal"`
 	ShippingCost  float64   `json:"shipping_cost"`
 	TaxAmount     float64   `json:"tax_amount"`
-	PaymentMethod *string   `json:"payment_method,omitempty"`
-	PaymentStatus string    `json:"payment_status"`
-	Notes         *string   `json:"notes,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	PaymentMethod    *string   `json:"payment_method,omitempty"`
+	PaymentStatus    string    `json:"payment_status"`
+	Notes            *string   `json:"notes,omitempty"`
+	RequiresInvoice  bool      `json:"requires_invoice"`
+	NIP              *string   `json:"nip,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 // ShippingAddress represents a shipping address
@@ -134,6 +136,8 @@ type OrderRequest struct {
 	SameAsShipping  bool           `json:"same_as_shipping"`
 	PaymentMethod   *string        `json:"payment_method,omitempty"`
 	Notes           *string        `json:"notes,omitempty"`
+	RequiresInvoice bool           `json:"requires_invoice"`
+	NIP             *string        `json:"nip,omitempty"`
 }
 
 // OrderResponse represents order response to frontend
@@ -152,6 +156,8 @@ type OrderResponse struct {
 	PaymentMethod   *string                 `json:"payment_method,omitempty"`
 	PaymentStatus   string                  `json:"payment_status"`
 	Notes           *string                 `json:"notes,omitempty"`
+	RequiresInvoice bool                    `json:"requires_invoice"`
+	NIP             *string                 `json:"nip,omitempty"`
 	ShippingAddress *ShippingAddress        `json:"shipping_address,omitempty"`
 	BillingAddress  *BillingAddress         `json:"billing_address,omitempty"`
 	Items           []OrderItem             `json:"items,omitempty"`
