@@ -369,6 +369,175 @@ func (q *OrderQueries) GetOrdersByUserID(userID int, page, limit int) (*models.O
 	return q.ListOrders(page, limit, &userID, "", "")
 }
 
+// GetOrdersByUserIDWithItems retrieves orders for a specific user with full order items, addresses and services
+func (q *OrderQueries) GetOrdersByUserIDWithItems(userID int, page, limit int) (*models.OrderListResponse, error) {
+	offset := (page - 1) * limit
+	
+	// Count total orders for the user
+	countQuery := "SELECT COUNT(*) FROM orders WHERE user_id = $1"
+	var total int
+	err := q.db.QueryRow(countQuery, userID).Scan(&total)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count orders: %w", err)
+	}
+
+	// Get basic order information with pagination
+	ordersQuery := `
+		SELECT id, user_id, session_id, email, phone, status, total_amount, subtotal, shipping_cost, tax_amount, payment_method, payment_status, notes, created_at, updated_at
+		FROM orders
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3`
+	
+	rows, err := q.db.Query(ordersQuery, userID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get orders: %w", err)
+	}
+	defer rows.Close()
+
+	var orders []models.OrderResponse
+	for rows.Next() {
+		var order models.Order
+		err := rows.Scan(&order.ID, &order.UserID, &order.SessionID, &order.Email, &order.Phone, &order.Status, &order.TotalAmount, &order.Subtotal, &order.ShippingCost, &order.TaxAmount, &order.PaymentMethod, &order.PaymentStatus, &order.Notes, &order.CreatedAt, &order.UpdatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan order: %w", err)
+		}
+
+		// Get shipping address for this order
+		var shippingAddr *models.ShippingAddress
+		shippingQuery := `
+			SELECT id, first_name, last_name, company, address_line1, address_line2, city, state_province, postal_code, country, phone, created_at
+			FROM shipping_addresses
+			WHERE order_id = $1`
+		
+		var addr models.ShippingAddress
+		err = q.db.QueryRow(shippingQuery, order.ID).Scan(&addr.ID, &addr.FirstName, &addr.LastName, &addr.Company, &addr.AddressLine1, &addr.AddressLine2, &addr.City, &addr.StateProvince, &addr.PostalCode, &addr.Country, &addr.Phone, &addr.CreatedAt)
+		if err == nil {
+			addr.OrderID = order.ID
+			shippingAddr = &addr
+		} else if err != sql.ErrNoRows {
+			return nil, fmt.Errorf("failed to get shipping address: %w", err)
+		}
+
+		// Get billing address for this order
+		var billingAddr *models.BillingAddress
+		billingQuery := `
+			SELECT id, first_name, last_name, company, address_line1, address_line2, city, state_province, postal_code, country, phone, same_as_shipping, created_at
+			FROM billing_addresses
+			WHERE order_id = $1`
+		
+		var bAddr models.BillingAddress
+		err = q.db.QueryRow(billingQuery, order.ID).Scan(&bAddr.ID, &bAddr.FirstName, &bAddr.LastName, &bAddr.Company, &bAddr.AddressLine1, &bAddr.AddressLine2, &bAddr.City, &bAddr.StateProvince, &bAddr.PostalCode, &bAddr.Country, &bAddr.Phone, &bAddr.SameAsShipping, &bAddr.CreatedAt)
+		if err == nil {
+			bAddr.OrderID = order.ID
+			billingAddr = &bAddr
+		} else if err != sql.ErrNoRows {
+			return nil, fmt.Errorf("failed to get billing address: %w", err)
+		}
+
+		// Get order items for this order
+		itemsQuery := `
+			SELECT id, product_id, product_name, product_description, variant_id, variant_name, variant_color_name, variant_color_custom, size_id, size_name, size_dimensions, quantity, unit_price, total_price, created_at
+			FROM order_items
+			WHERE order_id = $1
+			ORDER BY id`
+		
+		itemRows, err := q.db.Query(itemsQuery, order.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get order items: %w", err)
+		}
+
+		var items []models.OrderItem
+		for itemRows.Next() {
+			var item models.OrderItem
+			var dimensionsJSON []byte
+			
+			err := itemRows.Scan(&item.ID, &item.ProductID, &item.ProductName, &item.ProductDescription, &item.VariantID, &item.VariantName, &item.VariantColorName, &item.VariantColorCustom, &item.SizeID, &item.SizeName, &dimensionsJSON, &item.Quantity, &item.UnitPrice, &item.TotalPrice, &item.CreatedAt)
+			if err != nil {
+				itemRows.Close()
+				return nil, fmt.Errorf("failed to scan order item: %w", err)
+			}
+			
+			// Parse size dimensions
+			if dimensionsJSON != nil {
+				err = json.Unmarshal(dimensionsJSON, &item.SizeDimensions)
+				if err != nil {
+					itemRows.Close()
+					return nil, fmt.Errorf("failed to unmarshal size dimensions: %w", err)
+				}
+			}
+			
+			item.OrderID = order.ID
+
+			// Get services for this item
+			servicesQuery := `
+				SELECT id, service_id, service_name, service_description, service_price, created_at
+				FROM order_item_services
+				WHERE order_item_id = $1
+				ORDER BY id`
+			
+			serviceRows, err := q.db.Query(servicesQuery, item.ID)
+			if err != nil {
+				itemRows.Close()
+				return nil, fmt.Errorf("failed to get order item services: %w", err)
+			}
+
+			var services []models.OrderItemService
+			for serviceRows.Next() {
+				var service models.OrderItemService
+				err := serviceRows.Scan(&service.ID, &service.ServiceID, &service.ServiceName, &service.ServiceDescription, &service.ServicePrice, &service.CreatedAt)
+				if err != nil {
+					serviceRows.Close()
+					itemRows.Close()
+					return nil, fmt.Errorf("failed to scan order item service: %w", err)
+				}
+				service.OrderItemID = item.ID
+				services = append(services, service)
+			}
+			serviceRows.Close()
+			
+			item.Services = services
+			items = append(items, item)
+		}
+		itemRows.Close()
+
+		// Create order response with all related data
+		orderResponse := models.OrderResponse{
+			ID:              order.ID,
+			UserID:          order.UserID,
+			SessionID:       order.SessionID,
+			Email:           order.Email,
+			Phone:           order.Phone,
+			Status:          order.Status,
+			TotalAmount:     order.TotalAmount,
+			Subtotal:        order.Subtotal,
+			ShippingCost:    order.ShippingCost,
+			TaxAmount:       order.TaxAmount,
+			PaymentMethod:   order.PaymentMethod,
+			PaymentStatus:   order.PaymentStatus,
+			Notes:           order.Notes,
+			ShippingAddress: shippingAddr,
+			BillingAddress:  billingAddr,
+			Items:           items,
+			CreatedAt:       order.CreatedAt,
+			UpdatedAt:       order.UpdatedAt,
+		}
+
+		orders = append(orders, orderResponse)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating orders: %w", err)
+	}
+
+	return &models.OrderListResponse{
+		Orders: orders,
+		Total:  total,
+		Page:   page,
+		Limit:  limit,
+	}, nil
+}
+
 // DeleteOrder deletes an order and all related data
 func (q *OrderQueries) DeleteOrder(id int) error {
 	tx, err := q.db.Begin()

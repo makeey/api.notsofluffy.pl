@@ -90,10 +90,10 @@ func main() {
 		auth.GET("/profile", middleware.AuthMiddleware(cfg.JWTSecret), authHandler.Profile)
 	}
 
-	// Order routes
+	// Order routes (with optional auth for user association)
 	orders := r.Group("/api/orders")
 	{
-		orders.POST("", orderHandler.CreateOrder)
+		orders.POST("", middleware.OptionalAuthMiddleware(cfg.JWTSecret), orderHandler.CreateOrder)
 		orders.GET("/:id", orderHandler.GetOrder)
 	}
 

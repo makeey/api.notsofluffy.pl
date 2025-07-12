@@ -69,3 +69,36 @@ func AdminMiddleware(jwtSecret string) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// OptionalAuthMiddleware extracts user info from JWT token if present, but doesn't require it
+// This allows both authenticated and guest users to access the endpoint
+func OptionalAuthMiddleware(jwtSecret string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			// No auth header - continue as guest user
+			c.Next()
+			return
+		}
+
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+		if tokenString == authHeader {
+			// Invalid format - continue as guest user
+			c.Next()
+			return
+		}
+
+		claims, err := auth.ValidateToken(tokenString, jwtSecret)
+		if err != nil {
+			// Invalid token - continue as guest user
+			c.Next()
+			return
+		}
+
+		// Valid token - set user context
+		c.Set("user_id", claims.UserID)
+		c.Set("user_email", claims.Email)
+		c.Set("user_role", claims.Role)
+		c.Next()
+	}
+}

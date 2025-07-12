@@ -5,7 +5,6 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"notsofluffy-backend/internal/auth"
 	"notsofluffy-backend/internal/database"
 	"notsofluffy-backend/internal/models"
 )
@@ -43,9 +42,9 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 
 	// Get user ID if authenticated
 	var userID *int
-	if userClaim, exists := c.Get("user"); exists {
-		if user, ok := userClaim.(*auth.Claims); ok {
-			userID = &user.UserID
+	if userIDValue, exists := c.Get("user_id"); exists {
+		if id, ok := userIDValue.(int); ok {
+			userID = &id
 		}
 	}
 
@@ -271,17 +270,19 @@ func (h *OrderHandler) GetOrder(c *gin.Context) {
 	}
 
 	// Check if user has permission to view this order
-	if userClaim, exists := c.Get("user"); exists {
-		if user, ok := userClaim.(*auth.Claims); ok {
+	if userIDValue, exists := c.Get("user_id"); exists {
+		if userID, ok := userIDValue.(int); ok {
 			// User can view their own orders
-			if order.UserID != nil && *order.UserID == user.UserID {
+			if order.UserID != nil && *order.UserID == userID {
 				c.JSON(http.StatusOK, order)
 				return
 			}
-			// Admin can view all orders
-			if user.Role == "admin" {
-				c.JSON(http.StatusOK, order)
-				return
+			// Admin can view all orders (check role)
+			if userRole, roleExists := c.Get("user_role"); roleExists {
+				if role, roleOk := userRole.(string); roleOk && role == "admin" {
+					c.JSON(http.StatusOK, order)
+					return
+				}
 			}
 		}
 	}
@@ -372,15 +373,15 @@ func (h *OrderHandler) UpdateOrderStatus(c *gin.Context) {
 
 // GetUserOrders retrieves orders for the authenticated user
 func (h *OrderHandler) GetUserOrders(c *gin.Context) {
-	userClaim, exists := c.Get("user")
+	userID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
 
-	user, ok := userClaim.(*auth.Claims)
+	id, ok := userID.(int)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user claims"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
 		return
 	}
 
@@ -395,7 +396,7 @@ func (h *OrderHandler) GetUserOrders(c *gin.Context) {
 		limit = 10
 	}
 
-	orders, err := h.orderQueries.GetOrdersByUserID(user.UserID, page, limit)
+	orders, err := h.orderQueries.GetOrdersByUserIDWithItems(id, page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get orders"})
 		return
