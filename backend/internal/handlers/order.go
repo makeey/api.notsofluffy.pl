@@ -271,6 +271,7 @@ func (h *OrderHandler) GetOrder(c *gin.Context) {
 
 	// Check if user has permission to view this order
 	if userIDValue, exists := c.Get("user_id"); exists {
+		// User is authenticated - only check user ownership and admin role
 		if userID, ok := userIDValue.(int); ok {
 			// User can view their own orders
 			if order.UserID != nil && *order.UserID == userID {
@@ -284,12 +285,16 @@ func (h *OrderHandler) GetOrder(c *gin.Context) {
 					return
 				}
 			}
+			// Authenticated user cannot access this order - deny access
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			return
 		}
 	}
 
-	// For guest orders, check session
+	// User is NOT authenticated - check session for guest orders only
 	sessionID, exists := c.Get("session_id")
-	if exists && order.SessionID != nil && *order.SessionID == sessionID.(string) {
+	if exists && order.UserID == nil && order.SessionID != nil && *order.SessionID == sessionID.(string) {
+		// This is a guest order and session matches
 		c.JSON(http.StatusOK, order)
 		return
 	}
