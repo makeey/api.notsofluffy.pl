@@ -8,7 +8,8 @@
       "Bash(go build:*)",
       "Bash(cp:*)",
       "Bash(curl:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(rg:*)"
     ],
     "deny": []
   }

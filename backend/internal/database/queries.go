@@ -1620,7 +1620,7 @@ func (q *ProductQueries) ListProducts(page, limit int, search string, categoryID
 	
 	if search != "" {
 		argCount++
-		whereClause += fmt.Sprintf(" AND (p.name ILIKE $%d OR p.short_description ILIKE $%d OR p.description ILIKE $%d)", argCount, argCount, argCount)
+		whereClause += fmt.Sprintf(" AND (p.name ILIKE $%d OR p.short_description ILIKE $%d OR p.description ILIKE $%d OR COALESCE(m.name, '') ILIKE $%d OR COALESCE(c.name, '') ILIKE $%d)", argCount, argCount, argCount, argCount, argCount)
 		args = append(args, "%"+search+"%")
 	}
 	
@@ -2023,7 +2023,7 @@ func (q *ProductQueries) GetPublicProducts(page, limit int, search string, categ
 	
 	if search != "" {
 		argCount++
-		whereClause += fmt.Sprintf(" AND (p.name ILIKE $%d OR p.short_description ILIKE $%d OR p.description ILIKE $%d)", argCount, argCount, argCount)
+		whereClause += fmt.Sprintf(" AND (p.name ILIKE $%d OR p.short_description ILIKE $%d OR p.description ILIKE $%d OR COALESCE(m.name, '') ILIKE $%d OR COALESCE(c.name, '') ILIKE $%d)", argCount, argCount, argCount, argCount, argCount)
 		args = append(args, "%"+search+"%")
 	}
 	
@@ -2061,6 +2061,10 @@ func (q *ProductQueries) GetPublicProducts(page, limit int, search string, categ
 	`, whereClause, limitArg, offsetArg)
 	
 	args = append(args, limit, offset)
+	
+	// Debug: print the query and args
+	fmt.Printf("DEBUG SQL Query: %s\n", query)
+	fmt.Printf("DEBUG Args: %v\n", args)
 	
 	rows, err := q.db.Query(query, args...)
 	if err != nil {
@@ -2155,7 +2159,7 @@ func (q *ProductQueries) GetPublicProductsCount(search string, categoryIDs []int
 	
 	if search != "" {
 		argCount++
-		whereClause += fmt.Sprintf(" AND (p.name ILIKE $%d OR p.short_description ILIKE $%d OR p.description ILIKE $%d)", argCount, argCount, argCount)
+		whereClause += fmt.Sprintf(" AND (p.name ILIKE $%d OR p.short_description ILIKE $%d OR p.description ILIKE $%d OR COALESCE(m.name, '') ILIKE $%d OR COALESCE(c.name, '') ILIKE $%d)", argCount, argCount, argCount, argCount, argCount)
 		args = append(args, "%"+search+"%")
 	}
 	
@@ -2168,9 +2172,14 @@ func (q *ProductQueries) GetPublicProductsCount(search string, categoryIDs []int
 	query := fmt.Sprintf(`
 		SELECT COUNT(DISTINCT p.id)
 		FROM products p
+		LEFT JOIN materials m ON p.material_id = m.id
 		LEFT JOIN categories c ON p.category_id = c.id
 		%s
 	`, whereClause)
+	
+	// Debug: print the count query and args
+	fmt.Printf("DEBUG COUNT Query: %s\n", query)
+	fmt.Printf("DEBUG COUNT Args: %v\n", args)
 	
 	var count int
 	err := q.db.QueryRow(query, args...).Scan(&count)
@@ -2776,4 +2785,100 @@ func (q *ProductVariantQueries) ensureOnlyOneDefaultVariant(productID int, exclu
 	}
 	
 	return nil
+}
+
+// SearchProductsEnhanced performs enhanced search with sorting options
+func (q *ProductQueries) SearchProductsEnhanced(page, limit int, search string, categoryIDs []int, sortBy string) ([]models.ProductWithRelations, error) {
+	// For now, use the existing GetPublicProducts with enhanced search
+	// We can extend this later with more sophisticated sorting
+	return q.GetPublicProducts(page, limit, search, categoryIDs)
+}
+
+// GetSearchProductsCount returns the total count of search results
+func (q *ProductQueries) GetSearchProductsCount(search string, categoryIDs []int) (int, error) {
+	// Use the existing GetPublicProductsCount function
+	return q.GetPublicProductsCount(search, categoryIDs)
+}
+
+// GetSearchSuggestions returns search suggestions based on product names and categories
+func (q *ProductQueries) GetSearchSuggestions(query string, limit int) ([]string, error) {
+	var suggestions []string
+	
+	// Get product name suggestions
+	productQuery := `
+		SELECT DISTINCT p.name
+		FROM products p
+		LEFT JOIN categories c ON p.category_id = c.id
+		WHERE (c.active = true OR c.id IS NULL) AND p.name ILIKE $1
+		ORDER BY p.name
+		LIMIT $2
+	`
+	
+	rows, err := q.db.Query(productQuery, "%"+query+"%", limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get product suggestions: %w", err)
+	}
+	defer rows.Close()
+	
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			continue
+		}
+		suggestions = append(suggestions, name)
+	}
+	
+	// If we have fewer suggestions than the limit, add category suggestions
+	if len(suggestions) < limit {
+		remaining := limit - len(suggestions)
+		categoryQuery := `
+			SELECT DISTINCT c.name
+			FROM categories c
+			WHERE c.active = true AND c.name ILIKE $1
+			ORDER BY c.name
+			LIMIT $2
+		`
+		
+		rows, err := q.db.Query(categoryQuery, "%"+query+"%", remaining)
+		if err != nil {
+			return suggestions, nil // Return what we have so far
+		}
+		defer rows.Close()
+		
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				continue
+			}
+			suggestions = append(suggestions, name)
+		}
+	}
+	
+	// If still not enough, add material suggestions
+	if len(suggestions) < limit {
+		remaining := limit - len(suggestions)
+		materialQuery := `
+			SELECT DISTINCT m.name
+			FROM materials m
+			WHERE m.name ILIKE $1
+			ORDER BY m.name
+			LIMIT $2
+		`
+		
+		rows, err := q.db.Query(materialQuery, "%"+query+"%", remaining)
+		if err != nil {
+			return suggestions, nil // Return what we have so far
+		}
+		defer rows.Close()
+		
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				continue
+			}
+			suggestions = append(suggestions, name)
+		}
+	}
+	
+	return suggestions, nil
 }

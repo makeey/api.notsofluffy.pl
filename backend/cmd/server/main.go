@@ -69,6 +69,8 @@ func main() {
 		public.GET("/categories", publicHandler.GetActiveCategories)
 		public.GET("/products", publicHandler.GetPublicProducts)
 		public.GET("/products/:id", publicHandler.GetPublicProduct)
+		public.GET("/search", publicHandler.SearchProducts)
+		public.GET("/search/suggestions", publicHandler.GetSearchSuggestions)
 	}
 
 	// Cart routes (public but require session)

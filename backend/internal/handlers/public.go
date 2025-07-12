@@ -191,3 +191,163 @@ func (h *PublicHandler) GetPublicProduct(c *gin.Context) {
 		"sizes":    sizes,
 	})
 }
+
+// SearchProducts handles dedicated search functionality with enhanced features
+func (h *PublicHandler) SearchProducts(c *gin.Context) {
+	// Parse query parameters
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "12"))
+	query := strings.TrimSpace(c.Query("q"))
+	sortBy := c.DefaultQuery("sort", "relevance") // relevance, price_asc, price_desc, newest
+	
+	// Parse category filter
+	categoryNames := c.QueryArray("category")
+	var categoryIDs []int
+	if len(categoryNames) > 0 {
+		// Convert category names to IDs
+		for _, name := range categoryNames {
+			name = strings.TrimSpace(name)
+			if name != "" {
+				categories, err := h.categoryQueries.GetActiveCategories()
+				if err == nil {
+					for _, cat := range categories {
+						if cat.Name == name || cat.Slug == name {
+							categoryIDs = append(categoryIDs, cat.ID)
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Validate and set limits
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 50 {
+		limit = 12
+	}
+
+	// If no search query, return popular/recent products
+	if query == "" {
+		products, err := h.productQueries.GetPublicProducts(page, limit, "", categoryIDs)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products", "details": err.Error()})
+			return
+		}
+
+		total, err := h.productQueries.GetPublicProductsCount("", categoryIDs)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product count", "details": err.Error()})
+			return
+		}
+
+		// Convert to response format
+		productResponses := make([]models.ProductResponse, len(products))
+		for i, product := range products {
+			productResponses[i] = models.ProductResponse{
+				ID:               product.ID,
+				Name:             product.Name,
+				ShortDescription: product.ShortDescription,
+				Description:      product.Description,
+				MaterialID:       product.MaterialID,
+				MainImageID:      product.MainImageID,
+				CategoryID:       product.CategoryID,
+				CreatedAt:        product.CreatedAt.Format(time.RFC3339),
+				UpdatedAt:        product.UpdatedAt.Format(time.RFC3339),
+				Material:         product.Material,
+				MainImage:        product.MainImage,
+				Category:         product.Category,
+				Images:           product.Images,
+				AdditionalServices: product.AdditionalServices,
+				MinPrice:         product.MinPrice,
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"products": productResponses,
+			"total":    total,
+			"page":     page,
+			"limit":    limit,
+			"query":    query,
+			"sort":     sortBy,
+			"suggestion": "Try searching for 'sweater', 'coat', or browse our categories",
+		})
+		return
+	}
+
+	// Perform search with the query
+	products, err := h.productQueries.SearchProductsEnhanced(page, limit, query, categoryIDs, sortBy)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Search failed", "details": err.Error()})
+		return
+	}
+
+	// Get total count for pagination
+	total, err := h.productQueries.GetSearchProductsCount(query, categoryIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get search count", "details": err.Error()})
+		return
+	}
+
+	// Convert to response format
+	productResponses := make([]models.ProductResponse, len(products))
+	for i, product := range products {
+		productResponses[i] = models.ProductResponse{
+			ID:               product.ID,
+			Name:             product.Name,
+			ShortDescription: product.ShortDescription,
+			Description:      product.Description,
+			MaterialID:       product.MaterialID,
+			MainImageID:      product.MainImageID,
+			CategoryID:       product.CategoryID,
+			CreatedAt:        product.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:        product.UpdatedAt.Format(time.RFC3339),
+			Material:         product.Material,
+			MainImage:        product.MainImage,
+			Category:         product.Category,
+			Images:           product.Images,
+			AdditionalServices: product.AdditionalServices,
+			MinPrice:         product.MinPrice,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"products": productResponses,
+		"total":    total,
+		"page":     page,
+		"limit":    limit,
+		"query":    query,
+		"sort":     sortBy,
+	})
+}
+
+// GetSearchSuggestions provides autocomplete suggestions for search
+func (h *PublicHandler) GetSearchSuggestions(c *gin.Context) {
+	query := strings.TrimSpace(c.Query("q"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "5"))
+	
+	if limit < 1 || limit > 10 {
+		limit = 5
+	}
+
+	if len(query) < 2 {
+		c.JSON(http.StatusOK, gin.H{
+			"suggestions": []string{},
+			"query":       query,
+		})
+		return
+	}
+
+	suggestions, err := h.productQueries.GetSearchSuggestions(query, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get suggestions", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"suggestions": suggestions,
+		"query":       query,
+	})
+}

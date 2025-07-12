@@ -79,10 +79,10 @@
 [GIN-debug] GET    /api/admin/orders/:id     --> notsofluffy-backend/internal/handlers.(*AdminHandler).GetOrderDetails-fm (6 handlers)
 [GIN-debug] PUT    /api/admin/orders/:id/status --> notsofluffy-backend/internal/handlers.(*AdminHandler).UpdateOrderStatus-fm (6 handlers)
 [GIN-debug] DELETE /api/admin/orders/:id     --> notsofluffy-backend/internal/handlers.(*AdminHandler).DeleteOrder-fm (6 handlers)
-2025/07/12 18:55:16 Server starting on port 8080
+2025/07/12 18:56:10 Server starting on port 8080
 [GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
 Please check https://pkg.go.dev/github.com/gin-gonic/gin#readme-don-t-trust-all-proxies for details.
 [GIN-debug] Listening and serving HTTP on :8080
 [GIN-debug] [ERROR] listen tcp :8080: bind: address already in use
-2025/07/12 18:55:16 Failed to start server:listen tcp :8080: bind: address already in use
+2025/07/12 18:56:10 Failed to start server:listen tcp :8080: bind: address already in use
 exit status 1
