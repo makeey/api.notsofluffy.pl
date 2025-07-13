@@ -61,7 +61,11 @@ func main() {
 	orderQueries := database.NewOrderQueries(db)
 	cartQueries := database.NewCartQueries(db)
 	stockQueries := database.NewStockQueries(db)
-	orderHandler := handlers.NewOrderHandler(orderQueries, cartQueries, stockQueries)
+	discountQueries := database.NewDiscountQueries(db)
+	orderHandler := handlers.NewOrderHandler(orderQueries, cartQueries, stockQueries, discountQueries)
+	
+	// Initialize discount handler
+	discountHandler := handlers.NewDiscountHandler(discountQueries, cartQueries)
 
 	// Public routes
 	public := r.Group("/api")
@@ -82,6 +86,10 @@ func main() {
 		cart.DELETE("/remove/:id", cartHandler.RemoveFromCart)
 		cart.POST("/clear", cartHandler.ClearCart)
 		cart.GET("/count", cartHandler.GetCartCount)
+		
+		// Discount routes for cart
+		cart.POST("/discount/apply", discountHandler.ApplyDiscountToCart)
+		cart.DELETE("/discount/remove", discountHandler.RemoveDiscountFromCart)
 	}
 
 	// Auth routes
@@ -189,6 +197,14 @@ func main() {
 		admin.GET("/orders/:id", adminHandler.GetOrderDetails)
 		admin.PUT("/orders/:id/status", adminHandler.UpdateOrderStatus)
 		admin.DELETE("/orders/:id", adminHandler.DeleteOrder)
+		
+		// Discount code management
+		admin.GET("/discount-codes", discountHandler.GetDiscountCodes)
+		admin.POST("/discount-codes", discountHandler.CreateDiscountCode)
+		admin.GET("/discount-codes/:id", discountHandler.GetDiscountCode)
+		admin.PUT("/discount-codes/:id", discountHandler.UpdateDiscountCode)
+		admin.DELETE("/discount-codes/:id", discountHandler.DeleteDiscountCode)
+		admin.GET("/discount-codes/:id/usage", discountHandler.GetDiscountCodeUsage)
 	}
 
 	port := os.Getenv("PORT")

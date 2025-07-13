@@ -66,7 +66,7 @@ func (q *CartQueries) GetOrCreateCartSession(sessionID string, userID *int) (*mo
 // GetCartSessionByID gets a cart session by session ID
 func (q *CartQueries) GetCartSessionByID(sessionID string) (*models.CartSession, error) {
 	query := `
-		SELECT id, session_id, user_id, created_at, updated_at
+		SELECT id, session_id, user_id, applied_discount_code_id, discount_amount, created_at, updated_at
 		FROM cart_sessions
 		WHERE session_id = $1
 	`
@@ -75,6 +75,8 @@ func (q *CartQueries) GetCartSessionByID(sessionID string) (*models.CartSession,
 		&session.ID,
 		&session.SessionID,
 		&session.UserID,
+		&session.AppliedDiscountCodeID,
+		&session.DiscountAmount,
 		&session.CreatedAt,
 		&session.UpdatedAt,
 	)
@@ -90,13 +92,14 @@ func (q *CartQueries) GetCartSessionByID(sessionID string) (*models.CartSession,
 // CreateCartSession creates a new cart session
 func (q *CartQueries) CreateCartSession(sessionID string, userID *int) (*models.CartSession, error) {
 	session := &models.CartSession{
-		SessionID: sessionID,
-		UserID:    userID,
+		SessionID:      sessionID,
+		UserID:         userID,
+		DiscountAmount: 0,
 	}
 
 	query := `
-		INSERT INTO cart_sessions (session_id, user_id)
-		VALUES ($1, $2)
+		INSERT INTO cart_sessions (session_id, user_id, applied_discount_code_id, discount_amount)
+		VALUES ($1, $2, NULL, 0)
 		RETURNING id, created_at, updated_at
 	`
 	err := q.db.QueryRow(query, session.SessionID, session.UserID).Scan(
@@ -275,13 +278,35 @@ func (q *CartQueries) RemoveCartItem(cartItemID int) error {
 	return nil
 }
 
-// ClearCart removes all items from a cart session
+// ClearCart removes all items from a cart session and clears discount information
 func (q *CartQueries) ClearCart(cartSessionID int) error {
-	query := `DELETE FROM cart_items WHERE cart_session_id = $1`
-	_, err := q.db.Exec(query, cartSessionID)
+	tx, err := q.db.Begin()
 	if err != nil {
-		return fmt.Errorf("failed to clear cart: %w", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	defer tx.Rollback()
+
+	// Delete all cart items
+	_, err = tx.Exec(`DELETE FROM cart_items WHERE cart_session_id = $1`, cartSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to clear cart items: %w", err)
+	}
+
+	// Clear discount information from cart session
+	_, err = tx.Exec(`
+		UPDATE cart_sessions 
+		SET applied_discount_code_id = NULL, 
+		    discount_amount = 0, 
+		    updated_at = CURRENT_TIMESTAMP 
+		WHERE id = $1`, cartSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to clear discount information: %w", err)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
 	return nil
 }
 

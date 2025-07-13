@@ -21,6 +21,7 @@ type CartHandler struct {
 	sizeQueries     *database.SizeQueries
 	serviceQueries  *database.AdditionalServiceQueries
 	stockQueries    *database.StockQueries
+	discountQueries *database.DiscountQueries
 }
 
 // NewCartHandler creates a new cart handler
@@ -33,6 +34,7 @@ func NewCartHandler(db *sql.DB) *CartHandler {
 		sizeQueries:     database.NewSizeQueries(db),
 		serviceQueries:  database.NewAdditionalServiceQueries(db),
 		stockQueries:    database.NewStockQueries(db),
+		discountQueries: database.NewDiscountQueries(db),
 	}
 }
 
@@ -67,16 +69,42 @@ func (h *CartHandler) GetCart(c *gin.Context) {
 
 	// Calculate totals
 	var totalItems int
-	var totalPrice float64
+	var subtotal float64
 	for _, item := range items {
 		totalItems += item.Quantity
-		totalPrice += item.TotalPrice
+		subtotal += item.TotalPrice
+	}
+
+	// Get discount information if applied
+	var appliedDiscount *models.CartDiscount
+	discountAmount := cartSession.DiscountAmount
+	if cartSession.AppliedDiscountCodeID != nil {
+		// Get discount code details
+		discountCode, err := h.discountQueries.GetDiscountCodeByID(*cartSession.AppliedDiscountCodeID)
+		if err == nil {
+			appliedDiscount = &models.CartDiscount{
+				CodeID:          discountCode.ID,
+				Code:            discountCode.Code,
+				Description:     discountCode.Description,
+				DiscountType:    discountCode.DiscountType,
+				DiscountValue:   discountCode.DiscountValue,
+				DiscountAmount:  discountAmount,
+			}
+		}
+	}
+
+	totalPrice := subtotal - discountAmount
+	if totalPrice < 0 {
+		totalPrice = 0
 	}
 
 	response := models.CartResponse{
-		Items:      items,
-		TotalItems: totalItems,
-		TotalPrice: totalPrice,
+		Items:           items,
+		TotalItems:      totalItems,
+		Subtotal:        subtotal,
+		DiscountAmount:  discountAmount,
+		TotalPrice:      totalPrice,
+		AppliedDiscount: appliedDiscount,
 	}
 
 	c.JSON(http.StatusOK, response)

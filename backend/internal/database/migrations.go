@@ -418,6 +418,62 @@ func Migrate(db *sql.DB) error {
 		BEFORE UPDATE ON user_addresses
 		FOR EACH ROW
 		EXECUTE FUNCTION update_updated_at_column();`,
+
+		// Discount codes table
+		`CREATE TABLE IF NOT EXISTS discount_codes (
+			id SERIAL PRIMARY KEY,
+			code VARCHAR(50) UNIQUE NOT NULL,
+			description TEXT NOT NULL,
+			discount_type VARCHAR(20) NOT NULL CHECK (discount_type IN ('percentage', 'fixed_amount')),
+			discount_value DECIMAL(10,2) NOT NULL CHECK (discount_value > 0),
+			min_order_amount DECIMAL(10,2) NOT NULL DEFAULT 0 CHECK (min_order_amount >= 0),
+			usage_type VARCHAR(20) NOT NULL CHECK (usage_type IN ('one_time', 'once_per_user', 'unlimited')),
+			max_uses INTEGER DEFAULT NULL CHECK (max_uses IS NULL OR max_uses > 0),
+			used_count INTEGER NOT NULL DEFAULT 0 CHECK (used_count >= 0),
+			active BOOLEAN NOT NULL DEFAULT true,
+			start_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			end_date TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+			created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_discount_codes_code ON discount_codes(code);`,
+		`CREATE INDEX IF NOT EXISTS idx_discount_codes_active ON discount_codes(active);`,
+		`CREATE INDEX IF NOT EXISTS idx_discount_codes_usage_type ON discount_codes(usage_type);`,
+		`CREATE INDEX IF NOT EXISTS idx_discount_codes_start_date ON discount_codes(start_date);`,
+		`CREATE INDEX IF NOT EXISTS idx_discount_codes_end_date ON discount_codes(end_date);`,
+		`DROP TRIGGER IF EXISTS update_discount_codes_updated_at ON discount_codes;`,
+		`CREATE TRIGGER update_discount_codes_updated_at
+		BEFORE UPDATE ON discount_codes
+		FOR EACH ROW
+		EXECUTE FUNCTION update_updated_at_column();`,
+
+		// Discount code usage tracking table
+		`CREATE TABLE IF NOT EXISTS discount_code_usage (
+			id SERIAL PRIMARY KEY,
+			discount_code_id INTEGER NOT NULL REFERENCES discount_codes(id) ON DELETE CASCADE,
+			user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+			session_id VARCHAR(255),
+			order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_discount_code_usage_code_id ON discount_code_usage(discount_code_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_discount_code_usage_user_id ON discount_code_usage(user_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_discount_code_usage_session_id ON discount_code_usage(session_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_discount_code_usage_order_id ON discount_code_usage(order_id);`,
+
+		// Add discount fields to cart_sessions table
+		`ALTER TABLE cart_sessions ADD COLUMN IF NOT EXISTS applied_discount_code_id INTEGER REFERENCES discount_codes(id) ON DELETE SET NULL;`,
+		`ALTER TABLE cart_sessions ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) DEFAULT 0;`,
+		
+		// Add discount fields to orders table
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_code_id INTEGER REFERENCES discount_codes(id) ON DELETE SET NULL;`,
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) DEFAULT 0;`,
+		`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_description TEXT;`,
+
+		// Create indexes for new discount fields
+		`CREATE INDEX IF NOT EXISTS idx_cart_sessions_discount_code ON cart_sessions(applied_discount_code_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_orders_discount_code ON orders(discount_code_id);`,
 	}
 
 	for i, migration := range migrations {

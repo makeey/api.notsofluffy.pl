@@ -6,11 +6,13 @@ import (
 
 // CartSession represents a shopping cart session
 type CartSession struct {
-	ID        int       `json:"id"`
-	SessionID string    `json:"session_id"`
-	UserID    *int      `json:"user_id,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                     int       `json:"id"`
+	SessionID              string    `json:"session_id"`
+	UserID                 *int      `json:"user_id,omitempty"`
+	AppliedDiscountCodeID  *int      `json:"applied_discount_code_id,omitempty"`
+	DiscountAmount         float64   `json:"discount_amount"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 // CartItem represents an item in the cart
@@ -66,9 +68,12 @@ type CartItemResponse struct {
 
 // CartResponse represents the full cart with items
 type CartResponse struct {
-	Items      []CartItemResponse `json:"items"`
-	TotalItems int                `json:"total_items"`
-	TotalPrice float64            `json:"total_price"`
+	Items            []CartItemResponse `json:"items"`
+	TotalItems       int                `json:"total_items"`
+	Subtotal         float64            `json:"subtotal"`
+	DiscountAmount   float64            `json:"discount_amount"`
+	TotalPrice       float64            `json:"total_price"`
+	AppliedDiscount  *CartDiscount      `json:"applied_discount,omitempty"`
 }
 
 // CartCountResponse represents the cart item count

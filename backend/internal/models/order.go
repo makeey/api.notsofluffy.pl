@@ -23,24 +23,27 @@ const (
 
 // Order represents an order in the database
 type Order struct {
-	ID            int       `json:"id"`
-	UserID        *int      `json:"user_id,omitempty"`
-	SessionID     *string   `json:"session_id,omitempty"`
-	PublicHash    *string   `json:"public_hash,omitempty"`
-	Email         string    `json:"email"`
-	Phone         string    `json:"phone"`
-	Status        string    `json:"status"`
-	TotalAmount   float64   `json:"total_amount"`
-	Subtotal      float64   `json:"subtotal"`
-	ShippingCost  float64   `json:"shipping_cost"`
-	TaxAmount     float64   `json:"tax_amount"`
-	PaymentMethod    *string   `json:"payment_method,omitempty"`
-	PaymentStatus    string    `json:"payment_status"`
-	Notes            *string   `json:"notes,omitempty"`
-	RequiresInvoice  bool      `json:"requires_invoice"`
-	NIP              *string   `json:"nip,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID                  int       `json:"id"`
+	UserID              *int      `json:"user_id,omitempty"`
+	SessionID           *string   `json:"session_id,omitempty"`
+	PublicHash          *string   `json:"public_hash,omitempty"`
+	Email               string    `json:"email"`
+	Phone               string    `json:"phone"`
+	Status              string    `json:"status"`
+	TotalAmount         float64   `json:"total_amount"`
+	Subtotal            float64   `json:"subtotal"`
+	ShippingCost        float64   `json:"shipping_cost"`
+	TaxAmount           float64   `json:"tax_amount"`
+	DiscountCodeID      *int      `json:"discount_code_id,omitempty"`
+	DiscountAmount      float64   `json:"discount_amount"`
+	DiscountDescription *string   `json:"discount_description,omitempty"`
+	PaymentMethod       *string   `json:"payment_method,omitempty"`
+	PaymentStatus       string    `json:"payment_status"`
+	Notes               *string   `json:"notes,omitempty"`
+	RequiresInvoice     bool      `json:"requires_invoice"`
+	NIP                 *string   `json:"nip,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 // ShippingAddress represents a shipping address
@@ -142,27 +145,30 @@ type OrderRequest struct {
 
 // OrderResponse represents order response to frontend
 type OrderResponse struct {
-	ID              int                     `json:"id"`
-	UserID          *int                    `json:"user_id,omitempty"`
-	SessionID       *string                 `json:"session_id,omitempty"`
-	PublicHash      *string                 `json:"public_hash,omitempty"`
-	Email           string                  `json:"email"`
-	Phone           string                  `json:"phone"`
-	Status          string                  `json:"status"`
-	TotalAmount     float64                 `json:"total_amount"`
-	Subtotal        float64                 `json:"subtotal"`
-	ShippingCost    float64                 `json:"shipping_cost"`
-	TaxAmount       float64                 `json:"tax_amount"`
-	PaymentMethod   *string                 `json:"payment_method,omitempty"`
-	PaymentStatus   string                  `json:"payment_status"`
-	Notes           *string                 `json:"notes,omitempty"`
-	RequiresInvoice bool                    `json:"requires_invoice"`
-	NIP             *string                 `json:"nip,omitempty"`
-	ShippingAddress *ShippingAddress        `json:"shipping_address,omitempty"`
-	BillingAddress  *BillingAddress         `json:"billing_address,omitempty"`
-	Items           []OrderItem             `json:"items,omitempty"`
-	CreatedAt       time.Time               `json:"created_at"`
-	UpdatedAt       time.Time               `json:"updated_at"`
+	ID                  int                     `json:"id"`
+	UserID              *int                    `json:"user_id,omitempty"`
+	SessionID           *string                 `json:"session_id,omitempty"`
+	PublicHash          *string                 `json:"public_hash,omitempty"`
+	Email               string                  `json:"email"`
+	Phone               string                  `json:"phone"`
+	Status              string                  `json:"status"`
+	TotalAmount         float64                 `json:"total_amount"`
+	Subtotal            float64                 `json:"subtotal"`
+	ShippingCost        float64                 `json:"shipping_cost"`
+	TaxAmount           float64                 `json:"tax_amount"`
+	DiscountCodeID      *int                    `json:"discount_code_id,omitempty"`
+	DiscountAmount      float64                 `json:"discount_amount"`
+	DiscountDescription *string                 `json:"discount_description,omitempty"`
+	PaymentMethod       *string                 `json:"payment_method,omitempty"`
+	PaymentStatus       string                  `json:"payment_status"`
+	Notes               *string                 `json:"notes,omitempty"`
+	RequiresInvoice     bool                    `json:"requires_invoice"`
+	NIP                 *string                 `json:"nip,omitempty"`
+	ShippingAddress     *ShippingAddress        `json:"shipping_address,omitempty"`
+	BillingAddress      *BillingAddress         `json:"billing_address,omitempty"`
+	Items               []OrderItem             `json:"items,omitempty"`
+	CreatedAt           time.Time               `json:"created_at"`
+	UpdatedAt           time.Time               `json:"updated_at"`
 }
 
 // OrderListResponse represents paginated order list response

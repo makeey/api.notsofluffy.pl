@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -12,16 +13,18 @@ import (
 )
 
 type OrderHandler struct {
-	orderQueries *database.OrderQueries
-	cartQueries  *database.CartQueries
-	stockQueries *database.StockQueries
+	orderQueries    *database.OrderQueries
+	cartQueries     *database.CartQueries
+	stockQueries    *database.StockQueries
+	discountQueries *database.DiscountQueries
 }
 
-func NewOrderHandler(orderQueries *database.OrderQueries, cartQueries *database.CartQueries, stockQueries *database.StockQueries) *OrderHandler {
+func NewOrderHandler(orderQueries *database.OrderQueries, cartQueries *database.CartQueries, stockQueries *database.StockQueries, discountQueries *database.DiscountQueries) *OrderHandler {
 	return &OrderHandler{
-		orderQueries: orderQueries,
-		cartQueries:  cartQueries,
-		stockQueries: stockQueries,
+		orderQueries:    orderQueries,
+		cartQueries:     cartQueries,
+		stockQueries:    stockQueries,
+		discountQueries: discountQueries,
 	}
 }
 
@@ -102,40 +105,57 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 
 	// Calculate totals
 	var totalItems int
-	var totalPrice float64
+	var subtotal float64
 	for _, item := range items {
 		totalItems += item.Quantity
-		totalPrice += item.TotalPrice
+		subtotal += item.TotalPrice
 	}
 
-	cart := models.CartResponse{
-		Items:      items,
-		TotalItems: totalItems,
-		TotalPrice: totalPrice,
+	// Check for applied discount and calculate discount details
+	var discountCodeID *int
+	var discountAmount float64
+	var discountDescription *string
+	if cartSession.AppliedDiscountCodeID != nil {
+		discountCodeID = cartSession.AppliedDiscountCodeID
+		discountAmount = cartSession.DiscountAmount
+		
+		// Get discount code for description
+		discountCode, err := h.discountQueries.GetDiscountCodeByID(*cartSession.AppliedDiscountCodeID)
+		if err == nil {
+			desc := fmt.Sprintf("%s: %s", discountCode.Code, discountCode.Description)
+			discountDescription = &desc
+		}
 	}
 
-	// Calculate totals
-	subtotal := cart.TotalPrice
+	// Calculate final totals
+	discountedSubtotal := subtotal - discountAmount
+	if discountedSubtotal < 0 {
+		discountedSubtotal = 0
+	}
+	
 	shippingCost := 0.0 // TODO: implement shipping calculation
 	taxAmount := 0.0    // TODO: implement tax calculation
-	totalAmount := subtotal + shippingCost + taxAmount
+	totalAmount := discountedSubtotal + shippingCost + taxAmount
 
 	// Create order
 	order := &models.Order{
-		UserID:          userID,
-		SessionID:       &sessionIDStr,
-		Email:           req.Email,
-		Phone:           req.Phone,
-		Status:          models.OrderStatusPending,
-		TotalAmount:     totalAmount,
-		Subtotal:        subtotal,
-		ShippingCost:    shippingCost,
-		TaxAmount:       taxAmount,
-		PaymentMethod:   req.PaymentMethod,
-		PaymentStatus:   models.PaymentStatusPending,
-		Notes:           req.Notes,
-		RequiresInvoice: req.RequiresInvoice,
-		NIP:             req.NIP,
+		UserID:              userID,
+		SessionID:           &sessionIDStr,
+		Email:               req.Email,
+		Phone:               req.Phone,
+		Status:              models.OrderStatusPending,
+		TotalAmount:         totalAmount,
+		Subtotal:            subtotal,
+		ShippingCost:        shippingCost,
+		TaxAmount:           taxAmount,
+		DiscountCodeID:      discountCodeID,
+		DiscountAmount:      discountAmount,
+		DiscountDescription: discountDescription,
+		PaymentMethod:       req.PaymentMethod,
+		PaymentStatus:       models.PaymentStatusPending,
+		Notes:               req.Notes,
+		RequiresInvoice:     req.RequiresInvoice,
+		NIP:                 req.NIP,
 	}
 
 	// Create shipping address
@@ -173,7 +193,7 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 		Quantity int
 	}
 	
-	for _, cartItem := range cart.Items {
+	for _, cartItem := range items {
 		// Check and reserve stock
 		available, availableStock, err := h.stockQueries.CheckStockAvailability(cartItem.SizeID, cartItem.Quantity)
 		if err != nil {
@@ -214,7 +234,7 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 
 	// Convert cart items to order items
 	var orderItems []models.OrderItem
-	for _, cartItem := range cart.Items {
+	for _, cartItem := range items {
 		// Create size dimensions map
 		sizeDimensions := map[string]interface{}{
 			"a": cartItem.Size.A,
@@ -272,6 +292,15 @@ func (h *OrderHandler) CreateOrder(c *gin.Context) {
 			// Log error but don't fail the request since order was created
 			// TODO: implement proper logging
 			// In a production system, you might want to track this for inventory correction
+		}
+	}
+
+	// Record discount usage if discount was applied
+	if discountCodeID != nil {
+		err = h.discountQueries.RecordDiscountUsage(*discountCodeID, userID, sessionIDStr, &orderResponse.ID)
+		if err != nil {
+			// Log error but don't fail the request since order was created
+			// TODO: implement proper logging
 		}
 	}
 

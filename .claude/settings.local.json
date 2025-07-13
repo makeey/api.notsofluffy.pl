@@ -9,7 +9,8 @@
       "Bash(cp:*)",
       "Bash(curl:*)",
       "Bash(npm run build:*)",
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "Bash(go test:*)"
     ],
     "deny": []
   }

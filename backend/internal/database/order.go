@@ -45,11 +45,11 @@ func (q *OrderQueries) CreateOrder(order *models.Order, shippingAddr *models.Shi
 
 	// Insert order
 	orderQuery := `
-		INSERT INTO orders (user_id, session_id, public_hash, email, phone, status, total_amount, subtotal, shipping_cost, tax_amount, payment_method, payment_status, notes, requires_invoice, nip)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		INSERT INTO orders (user_id, session_id, public_hash, email, phone, status, total_amount, subtotal, shipping_cost, tax_amount, discount_code_id, discount_amount, discount_description, payment_method, payment_status, notes, requires_invoice, nip)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		RETURNING id, created_at, updated_at`
 	
-	err = tx.QueryRow(orderQuery, order.UserID, order.SessionID, order.PublicHash, order.Email, order.Phone, order.Status, order.TotalAmount, order.Subtotal, order.ShippingCost, order.TaxAmount, order.PaymentMethod, order.PaymentStatus, order.Notes, order.RequiresInvoice, order.NIP).Scan(&order.ID, &order.CreatedAt, &order.UpdatedAt)
+	err = tx.QueryRow(orderQuery, order.UserID, order.SessionID, order.PublicHash, order.Email, order.Phone, order.Status, order.TotalAmount, order.Subtotal, order.ShippingCost, order.TaxAmount, order.DiscountCodeID, order.DiscountAmount, order.DiscountDescription, order.PaymentMethod, order.PaymentStatus, order.Notes, order.RequiresInvoice, order.NIP).Scan(&order.ID, &order.CreatedAt, &order.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert order: %w", err)
 	}
@@ -125,27 +125,30 @@ func (q *OrderQueries) CreateOrder(order *models.Order, shippingAddr *models.Shi
 
 	// Return order response
 	return &models.OrderResponse{
-		ID:              order.ID,
-		UserID:          order.UserID,
-		SessionID:       order.SessionID,
-		PublicHash:      order.PublicHash,
-		Email:           order.Email,
-		Phone:           order.Phone,
-		Status:          order.Status,
-		TotalAmount:     order.TotalAmount,
-		Subtotal:        order.Subtotal,
-		ShippingCost:    order.ShippingCost,
-		TaxAmount:       order.TaxAmount,
-		PaymentMethod:   order.PaymentMethod,
-		PaymentStatus:   order.PaymentStatus,
-		Notes:           order.Notes,
-		RequiresInvoice: order.RequiresInvoice,
-		NIP:             order.NIP,
-		ShippingAddress: shippingAddr,
-		BillingAddress:  billingAddr,
-		Items:           items,
-		CreatedAt:       order.CreatedAt,
-		UpdatedAt:       order.UpdatedAt,
+		ID:                 order.ID,
+		UserID:             order.UserID,
+		SessionID:          order.SessionID,
+		PublicHash:         order.PublicHash,
+		Email:              order.Email,
+		Phone:              order.Phone,
+		Status:             order.Status,
+		TotalAmount:        order.TotalAmount,
+		Subtotal:           order.Subtotal,
+		ShippingCost:       order.ShippingCost,
+		TaxAmount:          order.TaxAmount,
+		DiscountCodeID:     order.DiscountCodeID,
+		DiscountAmount:     order.DiscountAmount,
+		DiscountDescription: order.DiscountDescription,
+		PaymentMethod:      order.PaymentMethod,
+		PaymentStatus:      order.PaymentStatus,
+		Notes:              order.Notes,
+		RequiresInvoice:    order.RequiresInvoice,
+		NIP:                order.NIP,
+		ShippingAddress:    shippingAddr,
+		BillingAddress:     billingAddr,
+		Items:              items,
+		CreatedAt:          order.CreatedAt,
+		UpdatedAt:          order.UpdatedAt,
 	}, nil
 }
 
@@ -153,12 +156,12 @@ func (q *OrderQueries) CreateOrder(order *models.Order, shippingAddr *models.Shi
 func (q *OrderQueries) GetOrderByID(id int) (*models.OrderResponse, error) {
 	// Get order
 	orderQuery := `
-		SELECT id, user_id, session_id, public_hash, email, phone, status, total_amount, subtotal, shipping_cost, tax_amount, payment_method, payment_status, notes, requires_invoice, nip, created_at, updated_at
+		SELECT id, user_id, session_id, public_hash, email, phone, status, total_amount, subtotal, shipping_cost, tax_amount, discount_code_id, discount_amount, discount_description, payment_method, payment_status, notes, requires_invoice, nip, created_at, updated_at
 		FROM orders
 		WHERE id = $1`
 	
 	var order models.Order
-	err := q.db.QueryRow(orderQuery, id).Scan(&order.ID, &order.UserID, &order.SessionID, &order.PublicHash, &order.Email, &order.Phone, &order.Status, &order.TotalAmount, &order.Subtotal, &order.ShippingCost, &order.TaxAmount, &order.PaymentMethod, &order.PaymentStatus, &order.Notes, &order.RequiresInvoice, &order.NIP, &order.CreatedAt, &order.UpdatedAt)
+	err := q.db.QueryRow(orderQuery, id).Scan(&order.ID, &order.UserID, &order.SessionID, &order.PublicHash, &order.Email, &order.Phone, &order.Status, &order.TotalAmount, &order.Subtotal, &order.ShippingCost, &order.TaxAmount, &order.DiscountCodeID, &order.DiscountAmount, &order.DiscountDescription, &order.PaymentMethod, &order.PaymentStatus, &order.Notes, &order.RequiresInvoice, &order.NIP, &order.CreatedAt, &order.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("order not found")
@@ -279,27 +282,30 @@ func (q *OrderQueries) GetOrderByID(id int) (*models.OrderResponse, error) {
 	}
 
 	return &models.OrderResponse{
-		ID:              order.ID,
-		UserID:          order.UserID,
-		SessionID:       order.SessionID,
-		PublicHash:      order.PublicHash,
-		Email:           order.Email,
-		Phone:           order.Phone,
-		Status:          order.Status,
-		TotalAmount:     order.TotalAmount,
-		Subtotal:        order.Subtotal,
-		ShippingCost:    order.ShippingCost,
-		TaxAmount:       order.TaxAmount,
-		PaymentMethod:   order.PaymentMethod,
-		PaymentStatus:   order.PaymentStatus,
-		Notes:           order.Notes,
-		RequiresInvoice: order.RequiresInvoice,
-		NIP:             order.NIP,
-		ShippingAddress: &shippingAddr,
-		BillingAddress:  &billingAddr,
-		Items:           items,
-		CreatedAt:       order.CreatedAt,
-		UpdatedAt:       order.UpdatedAt,
+		ID:                 order.ID,
+		UserID:             order.UserID,
+		SessionID:          order.SessionID,
+		PublicHash:         order.PublicHash,
+		Email:              order.Email,
+		Phone:              order.Phone,
+		Status:             order.Status,
+		TotalAmount:        order.TotalAmount,
+		Subtotal:           order.Subtotal,
+		ShippingCost:       order.ShippingCost,
+		TaxAmount:          order.TaxAmount,
+		DiscountCodeID:     order.DiscountCodeID,
+		DiscountAmount:     order.DiscountAmount,
+		DiscountDescription: order.DiscountDescription,
+		PaymentMethod:      order.PaymentMethod,
+		PaymentStatus:      order.PaymentStatus,
+		Notes:              order.Notes,
+		RequiresInvoice:    order.RequiresInvoice,
+		NIP:                order.NIP,
+		ShippingAddress:    &shippingAddr,
+		BillingAddress:     &billingAddr,
+		Items:              items,
+		CreatedAt:          order.CreatedAt,
+		UpdatedAt:          order.UpdatedAt,
 	}, nil
 }
 
@@ -307,12 +313,12 @@ func (q *OrderQueries) GetOrderByID(id int) (*models.OrderResponse, error) {
 func (q *OrderQueries) GetOrderByHash(hash string) (*models.OrderResponse, error) {
 	// Get order
 	orderQuery := `
-		SELECT id, user_id, session_id, public_hash, email, phone, status, total_amount, subtotal, shipping_cost, tax_amount, payment_method, payment_status, notes, requires_invoice, nip, created_at, updated_at
+		SELECT id, user_id, session_id, public_hash, email, phone, status, total_amount, subtotal, shipping_cost, tax_amount, discount_code_id, discount_amount, discount_description, payment_method, payment_status, notes, requires_invoice, nip, created_at, updated_at
 		FROM orders
 		WHERE public_hash = $1`
 	
 	var order models.Order
-	err := q.db.QueryRow(orderQuery, hash).Scan(&order.ID, &order.UserID, &order.SessionID, &order.PublicHash, &order.Email, &order.Phone, &order.Status, &order.TotalAmount, &order.Subtotal, &order.ShippingCost, &order.TaxAmount, &order.PaymentMethod, &order.PaymentStatus, &order.Notes, &order.RequiresInvoice, &order.NIP, &order.CreatedAt, &order.UpdatedAt)
+	err := q.db.QueryRow(orderQuery, hash).Scan(&order.ID, &order.UserID, &order.SessionID, &order.PublicHash, &order.Email, &order.Phone, &order.Status, &order.TotalAmount, &order.Subtotal, &order.ShippingCost, &order.TaxAmount, &order.DiscountCodeID, &order.DiscountAmount, &order.DiscountDescription, &order.PaymentMethod, &order.PaymentStatus, &order.Notes, &order.RequiresInvoice, &order.NIP, &order.CreatedAt, &order.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("order not found")
@@ -433,27 +439,30 @@ func (q *OrderQueries) GetOrderByHash(hash string) (*models.OrderResponse, error
 	}
 
 	return &models.OrderResponse{
-		ID:              order.ID,
-		UserID:          order.UserID,
-		SessionID:       order.SessionID,
-		PublicHash:      order.PublicHash,
-		Email:           order.Email,
-		Phone:           order.Phone,
-		Status:          order.Status,
-		TotalAmount:     order.TotalAmount,
-		Subtotal:        order.Subtotal,
-		ShippingCost:    order.ShippingCost,
-		TaxAmount:       order.TaxAmount,
-		PaymentMethod:   order.PaymentMethod,
-		PaymentStatus:   order.PaymentStatus,
-		Notes:           order.Notes,
-		RequiresInvoice: order.RequiresInvoice,
-		NIP:             order.NIP,
-		ShippingAddress: &shippingAddr,
-		BillingAddress:  &billingAddr,
-		Items:           items,
-		CreatedAt:       order.CreatedAt,
-		UpdatedAt:       order.UpdatedAt,
+		ID:                 order.ID,
+		UserID:             order.UserID,
+		SessionID:          order.SessionID,
+		PublicHash:         order.PublicHash,
+		Email:              order.Email,
+		Phone:              order.Phone,
+		Status:             order.Status,
+		TotalAmount:        order.TotalAmount,
+		Subtotal:           order.Subtotal,
+		ShippingCost:       order.ShippingCost,
+		TaxAmount:          order.TaxAmount,
+		DiscountCodeID:     order.DiscountCodeID,
+		DiscountAmount:     order.DiscountAmount,
+		DiscountDescription: order.DiscountDescription,
+		PaymentMethod:      order.PaymentMethod,
+		PaymentStatus:      order.PaymentStatus,
+		Notes:              order.Notes,
+		RequiresInvoice:    order.RequiresInvoice,
+		NIP:                order.NIP,
+		ShippingAddress:    &shippingAddr,
+		BillingAddress:     &billingAddr,
+		Items:              items,
+		CreatedAt:          order.CreatedAt,
+		UpdatedAt:          order.UpdatedAt,
 	}, nil
 }
 
