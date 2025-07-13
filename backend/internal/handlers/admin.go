@@ -30,6 +30,7 @@ type AdminHandler struct {
 	sizeQueries              *database.SizeQueries
 	productVariantQueries    *database.ProductVariantQueries
 	orderQueries             *database.OrderQueries
+	settingsQueries          *database.SettingsQueries
 }
 
 func NewAdminHandler(db *sql.DB) *AdminHandler {
@@ -45,6 +46,7 @@ func NewAdminHandler(db *sql.DB) *AdminHandler {
 		sizeQueries:              database.NewSizeQueries(db),
 		productVariantQueries:    database.NewProductVariantQueries(db),
 		orderQueries:             database.NewOrderQueries(db),
+		settingsQueries:          database.NewSettingsQueries(db),
 	}
 }
 
@@ -2040,4 +2042,55 @@ func (h *AdminHandler) DeleteOrder(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Order deleted successfully"})
+}
+
+// Settings Management
+
+func (h *AdminHandler) GetSettings(c *gin.Context) {
+	settings, err := h.settingsQueries.GetAllSettings()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get settings"})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SiteSettingsResponse{Settings: settings})
+}
+
+func (h *AdminHandler) UpdateSetting(c *gin.Context) {
+	key := c.Param("key")
+	if key == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Setting key is required"})
+		return
+	}
+
+	var req models.UpdateSettingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	// Validate maintenance_mode value
+	if key == "maintenance_mode" && req.Value != "true" && req.Value != "false" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "maintenance_mode must be 'true' or 'false'"})
+		return
+	}
+
+	err := h.settingsQueries.UpdateSetting(key, req.Value)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Setting not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update setting"})
+		return
+	}
+
+	// Get updated setting
+	setting, err := h.settingsQueries.GetSettingByKey(key)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get updated setting"})
+		return
+	}
+
+	c.JSON(http.StatusOK, setting)
 }

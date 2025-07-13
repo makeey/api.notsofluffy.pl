@@ -474,6 +474,27 @@ func Migrate(db *sql.DB) error {
 		// Create indexes for new discount fields
 		`CREATE INDEX IF NOT EXISTS idx_cart_sessions_discount_code ON cart_sessions(applied_discount_code_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_orders_discount_code ON orders(discount_code_id);`,
+
+		// Site settings table for global configuration
+		`CREATE TABLE IF NOT EXISTS site_settings (
+			id SERIAL PRIMARY KEY,
+			key VARCHAR(100) UNIQUE NOT NULL,
+			value TEXT NOT NULL,
+			description TEXT,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_site_settings_key ON site_settings(key);`,
+		`DROP TRIGGER IF EXISTS update_site_settings_updated_at ON site_settings;`,
+		`CREATE TRIGGER update_site_settings_updated_at
+		BEFORE UPDATE ON site_settings
+		FOR EACH ROW
+		EXECUTE FUNCTION update_updated_at_column();`,
+
+		// Insert default settings
+		`INSERT INTO site_settings (key, value, description) VALUES 
+		('maintenance_mode', 'false', 'Enable or disable maintenance mode for the site')
+		ON CONFLICT (key) DO NOTHING;`,
 	}
 
 	for i, migration := range migrations {

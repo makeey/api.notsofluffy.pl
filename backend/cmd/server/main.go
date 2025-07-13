@@ -47,6 +47,9 @@ func main() {
 	// Session middleware
 	r.Use(middleware.SessionMiddleware())
 
+	// Maintenance mode middleware
+	r.Use(middleware.MaintenanceMiddleware(db, cfg.JWTSecret))
+
 	// Static file serving for uploads
 	r.Static("/uploads", "./uploads")
 
@@ -75,6 +78,7 @@ func main() {
 		public.GET("/products/:id", publicHandler.GetPublicProduct)
 		public.GET("/search", publicHandler.SearchProducts)
 		public.GET("/search/suggestions", publicHandler.GetSearchSuggestions)
+		public.GET("/maintenance-status", publicHandler.GetMaintenanceStatus)
 	}
 
 	// Cart routes (public but require session)
@@ -205,6 +209,10 @@ func main() {
 		admin.PUT("/discount-codes/:id", discountHandler.UpdateDiscountCode)
 		admin.DELETE("/discount-codes/:id", discountHandler.DeleteDiscountCode)
 		admin.GET("/discount-codes/:id/usage", discountHandler.GetDiscountCodeUsage)
+		
+		// Settings management
+		admin.GET("/settings", adminHandler.GetSettings)
+		admin.PUT("/settings/:key", adminHandler.UpdateSetting)
 	}
 
 	port := os.Getenv("PORT")

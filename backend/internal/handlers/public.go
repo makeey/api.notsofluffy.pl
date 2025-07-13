@@ -18,6 +18,7 @@ type PublicHandler struct {
 	db              *sql.DB
 	categoryQueries *database.CategoryQueries
 	productQueries  *database.ProductQueries
+	settingsQueries *database.SettingsQueries
 }
 
 // NewPublicHandler creates a new public handler
@@ -26,6 +27,7 @@ func NewPublicHandler(db *sql.DB) *PublicHandler {
 		db:              db,
 		categoryQueries: database.NewCategoryQueries(db),
 		productQueries:  database.NewProductQueries(db),
+		settingsQueries: database.NewSettingsQueries(db),
 	}
 }
 
@@ -349,5 +351,18 @@ func (h *PublicHandler) GetSearchSuggestions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"suggestions": suggestions,
 		"query":       query,
+	})
+}
+
+// GetMaintenanceStatus returns the current maintenance mode status
+func (h *PublicHandler) GetMaintenanceStatus(c *gin.Context) {
+	isMaintenanceMode, err := h.settingsQueries.GetMaintenanceMode()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get maintenance status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"maintenance_mode": isMaintenanceMode,
 	})
 }
