@@ -104,56 +104,37 @@ func (q *DiscountQueries) validateUsageLimits(discountCode *models.DiscountCode,
 		}
 
 	case models.UsageTypeOncePerUser:
+		// Restrict guest users from using "once per user" discount codes
+		if userID == nil {
+			return &models.DiscountValidationResult{
+				IsValid:      false,
+				ErrorMessage: "This discount code requires you to be logged in. Please sign in to use this discount.",
+			}, nil
+		}
+
 		// Check if this user has used the code before (completed orders)
-		if userID != nil {
-			hasUsed, err := q.hasUserUsedCode(discountCode.ID, *userID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to check user usage: %w", err)
-			}
-			if hasUsed {
-				return &models.DiscountValidationResult{
-					IsValid:      false,
-					ErrorMessage: "You have already used this discount code",
-				}, nil
-			}
+		hasUsed, err := q.hasUserUsedCode(discountCode.ID, *userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check user usage: %w", err)
+		}
+		if hasUsed {
+			return &models.DiscountValidationResult{
+				IsValid:      false,
+				ErrorMessage: "You have already used this discount code",
+			}, nil
+		}
 
-			// Also check if the code is currently applied to any active cart sessions for this user
-			// (including the current session)
-			hasActiveCart, err := q.hasUserActiveCartWithCodeIncludingCurrent(discountCode.ID, *userID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to check active cart usage: %w", err)
-			}
-			if hasActiveCart {
-				return &models.DiscountValidationResult{
-					IsValid:      false,
-					ErrorMessage: "This discount code is already applied to your cart",
-				}, nil
-			}
-		} else {
-			// For guest users, check by session
-			hasUsed, err := q.hasSessionUsedCode(discountCode.ID, sessionID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to check session usage: %w", err)
-			}
-			if hasUsed {
-				return &models.DiscountValidationResult{
-					IsValid:      false,
-					ErrorMessage: "This discount code has already been used",
-				}, nil
-			}
-
-			// For guest users, also check if code is applied to any active sessions
-			// (including the current session)
-			hasActiveSession, err := q.hasActiveSessionWithCodeIncludingCurrent(discountCode.ID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to check active session usage: %w", err)
-			}
-			if hasActiveSession {
-				return &models.DiscountValidationResult{
-					IsValid:      false,
-					ErrorMessage: "This discount code is already applied to a cart session",
-				}, nil
-			}
+		// Also check if the code is currently applied to any active cart sessions for this user
+		// (including the current session)
+		hasActiveCart, err := q.hasUserActiveCartWithCodeIncludingCurrent(discountCode.ID, *userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check active cart usage: %w", err)
+		}
+		if hasActiveCart {
+			return &models.DiscountValidationResult{
+				IsValid:      false,
+				ErrorMessage: "This discount code is already applied to your cart",
+			}, nil
 		}
 
 	case models.UsageTypeUnlimited:

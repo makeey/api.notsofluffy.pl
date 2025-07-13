@@ -165,30 +165,18 @@ func TestOncePerUserDiscountUsage(t *testing.T) {
 		t.Errorf("Expected validation for different user to succeed, got error: %s", validation3.ErrorMessage)
 	}
 
-	// Step 7: Test guest user scenario (no user ID)
+	// Step 7: Test guest user scenario (no user ID) - should now be rejected
 	sessionID3 := "test-session-guest-1"
 	
 	validationGuest1, err := discountQueries.ValidateDiscountCode("ONCEUSER10", 100.0, nil, sessionID3)
 	if err != nil {
 		t.Fatalf("Failed to validate discount code for guest: %v", err)
 	}
-	if !validationGuest1.IsValid {
-		t.Errorf("Expected first guest validation to succeed, got error: %s", validationGuest1.ErrorMessage)
+	if validationGuest1.IsValid {
+		t.Error("Expected guest validation to fail for 'once_per_user' discount, but it succeeded")
 	}
-
-	// Record guest usage
-	err = discountQueries.RecordDiscountUsage(discountCodeID, nil, sessionID3, &orderResponse1.ID)
-	if err != nil {
-		t.Fatalf("Failed to record guest discount usage: %v", err)
-	}
-
-	// Try again with same guest session
-	validationGuest2, err := discountQueries.ValidateDiscountCode("ONCEUSER10", 100.0, nil, sessionID3)
-	if err != nil {
-		t.Fatalf("Failed to validate discount code for guest second time: %v", err)
-	}
-	if validationGuest2.IsValid {
-		t.Error("Expected second guest validation to fail, but it succeeded")
+	if validationGuest1.ErrorMessage != "This discount code requires you to be logged in. Please sign in to use this discount." {
+		t.Errorf("Expected specific error message for guest user, got '%s'", validationGuest1.ErrorMessage)
 	}
 
 	// Cleanup
