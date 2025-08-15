@@ -79,6 +79,7 @@ func main() {
 		public.GET("/search", publicHandler.SearchProducts)
 		public.GET("/search/suggestions", publicHandler.GetSearchSuggestions)
 		public.GET("/maintenance-status", publicHandler.GetMaintenanceStatus)
+		public.GET("/client-reviews", publicHandler.GetActiveClientReviews)
 	}
 
 	// Cart routes (public but require session)
@@ -213,6 +214,14 @@ func main() {
 		// Settings management
 		admin.GET("/settings", adminHandler.GetSettings)
 		admin.PUT("/settings/:key", adminHandler.UpdateSetting)
+		
+		// Client reviews management
+		admin.GET("/client-reviews", adminHandler.ListClientReviews)
+		admin.POST("/client-reviews", adminHandler.CreateClientReview)
+		admin.GET("/client-reviews/:id", adminHandler.GetClientReview)
+		admin.PUT("/client-reviews/:id", adminHandler.UpdateClientReview)
+		admin.DELETE("/client-reviews/:id", adminHandler.DeleteClientReview)
+		admin.POST("/client-reviews/reorder", adminHandler.ReorderClientReviews)
 	}
 
 	port := os.Getenv("PORT")

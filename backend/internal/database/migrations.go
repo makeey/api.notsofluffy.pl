@@ -495,6 +495,26 @@ func Migrate(db *sql.DB) error {
 		`INSERT INTO site_settings (key, value, description) VALUES 
 		('maintenance_mode', 'false', 'Enable or disable maintenance mode for the site')
 		ON CONFLICT (key) DO NOTHING;`,
+
+		// Client reviews table for homepage gallery
+		`CREATE TABLE IF NOT EXISTS client_reviews (
+			id SERIAL PRIMARY KEY,
+			client_name VARCHAR(255) NOT NULL,
+			instagram_handle VARCHAR(100),
+			image_id INTEGER NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+			display_order INTEGER NOT NULL DEFAULT 0,
+			is_active BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_client_reviews_image_id ON client_reviews(image_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_client_reviews_is_active ON client_reviews(is_active);`,
+		`CREATE INDEX IF NOT EXISTS idx_client_reviews_display_order ON client_reviews(display_order);`,
+		`DROP TRIGGER IF EXISTS update_client_reviews_updated_at ON client_reviews;`,
+		`CREATE TRIGGER update_client_reviews_updated_at
+		BEFORE UPDATE ON client_reviews
+		FOR EACH ROW
+		EXECUTE FUNCTION update_updated_at_column();`,
 	}
 
 	for i, migration := range migrations {

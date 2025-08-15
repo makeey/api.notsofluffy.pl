@@ -31,6 +31,7 @@ type AdminHandler struct {
 	productVariantQueries    *database.ProductVariantQueries
 	orderQueries             *database.OrderQueries
 	settingsQueries          *database.SettingsQueries
+	clientReviewQueries      *database.ClientReviewQueries
 }
 
 func NewAdminHandler(db *sql.DB) *AdminHandler {
@@ -47,6 +48,7 @@ func NewAdminHandler(db *sql.DB) *AdminHandler {
 		productVariantQueries:    database.NewProductVariantQueries(db),
 		orderQueries:             database.NewOrderQueries(db),
 		settingsQueries:          database.NewSettingsQueries(db),
+		clientReviewQueries:      database.NewClientReviewQueries(db),
 	}
 }
 
@@ -2093,4 +2095,158 @@ func (h *AdminHandler) UpdateSetting(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, setting)
+}
+
+// Client Reviews Management
+
+func (h *AdminHandler) ListClientReviews(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	activeOnly := c.Query("active_only") == "true"
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+
+	reviews, total, err := h.clientReviewQueries.ListClientReviews(page, limit, activeOnly)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve client reviews"})
+		return
+	}
+
+	response := models.ClientReviewListResponse{
+		ClientReviews: reviews,
+		Total:         total,
+		Page:          page,
+		Limit:         limit,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func (h *AdminHandler) GetClientReview(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid client review ID"})
+		return
+	}
+
+	review, err := h.clientReviewQueries.GetClientReviewByID(id)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Client review not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get client review"})
+		return
+	}
+
+	c.JSON(http.StatusOK, review)
+}
+
+func (h *AdminHandler) CreateClientReview(c *gin.Context) {
+	var req models.CreateClientReviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Verify image exists
+	_, err := h.imageQueries.GetImageByID(req.ImageID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Image not found"})
+		return
+	}
+
+	review, err := h.clientReviewQueries.CreateClientReview(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create client review"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, review)
+}
+
+func (h *AdminHandler) UpdateClientReview(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid client review ID"})
+		return
+	}
+
+	var req models.UpdateClientReviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Verify image exists
+	_, err = h.imageQueries.GetImageByID(req.ImageID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Image not found"})
+		return
+	}
+
+	review, err := h.clientReviewQueries.UpdateClientReview(id, req)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Client review not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update client review"})
+		return
+	}
+
+	c.JSON(http.StatusOK, review)
+}
+
+func (h *AdminHandler) DeleteClientReview(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid client review ID"})
+		return
+	}
+
+	err = h.clientReviewQueries.DeleteClientReview(id)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Client review not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete client review"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Client review deleted successfully"})
+}
+
+func (h *AdminHandler) ReorderClientReviews(c *gin.Context) {
+	var req models.ReorderClientReviewsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Convert to the format expected by the database function
+	var orders []struct{ ID, DisplayOrder int }
+	for _, order := range req.ReviewOrders {
+		orders = append(orders, struct{ ID, DisplayOrder int }{
+			ID:           order.ID,
+			DisplayOrder: order.DisplayOrder,
+		})
+	}
+
+	err := h.clientReviewQueries.ReorderClientReviews(orders)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reorder client reviews"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Client reviews reordered successfully"})
 }

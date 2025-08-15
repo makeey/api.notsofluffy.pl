@@ -2882,3 +2882,240 @@ func (q *ProductQueries) GetSearchSuggestions(query string, limit int) ([]string
 	
 	return suggestions, nil
 }
+
+// ClientReviewQueries provides database operations for client reviews
+type ClientReviewQueries struct {
+	db *sql.DB
+}
+
+func NewClientReviewQueries(db *sql.DB) *ClientReviewQueries {
+	return &ClientReviewQueries{db: db}
+}
+
+// ListClientReviews returns all client reviews with pagination and optional active filter
+func (q *ClientReviewQueries) ListClientReviews(page, limit int, activeOnly bool) ([]models.ClientReview, int, error) {
+	offset := (page - 1) * limit
+	
+	whereClause := ""
+	args := []interface{}{}
+	if activeOnly {
+		whereClause = "WHERE cr.is_active = true"
+	}
+	
+	// Count query
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM client_reviews cr
+		%s
+	`, whereClause)
+	
+	var total int
+	err := q.db.QueryRow(countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count client reviews: %w", err)
+	}
+	
+	// Main query with image data
+	query := fmt.Sprintf(`
+		SELECT 
+			cr.id, cr.client_name, cr.instagram_handle, cr.image_id, cr.display_order, cr.is_active, cr.created_at, cr.updated_at,
+			i.id, i.filename, i.original_name, i.path, i.size_bytes, i.mime_type, i.uploaded_by, i.created_at, i.updated_at
+		FROM client_reviews cr
+		LEFT JOIN images i ON cr.image_id = i.id
+		%s
+		ORDER BY cr.display_order ASC, cr.created_at DESC
+		LIMIT $%d OFFSET $%d
+	`, whereClause, len(args)+1, len(args)+2)
+	
+	args = append(args, limit, offset)
+	rows, err := q.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query client reviews: %w", err)
+	}
+	defer rows.Close()
+	
+	var reviews []models.ClientReview
+	for rows.Next() {
+		var review models.ClientReview
+		var image models.Image
+		
+		err := rows.Scan(
+			&review.ID, &review.ClientName, &review.InstagramHandle, &review.ImageID, &review.DisplayOrder, &review.IsActive, &review.CreatedAt, &review.UpdatedAt,
+			&image.ID, &image.Filename, &image.OriginalName, &image.Path, &image.SizeBytes, &image.MimeType, &image.UploadedBy, &image.CreatedAt, &image.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan client review: %w", err)
+		}
+		
+		review.Image = &image
+		reviews = append(reviews, review)
+	}
+	
+	if err = rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("failed to iterate client reviews: %w", err)
+	}
+	
+	return reviews, total, nil
+}
+
+// GetActiveClientReviews returns only active client reviews ordered by display_order
+func (q *ClientReviewQueries) GetActiveClientReviews() ([]models.ClientReview, error) {
+	query := `
+		SELECT 
+			cr.id, cr.client_name, cr.instagram_handle, cr.image_id, cr.display_order, cr.is_active, cr.created_at, cr.updated_at,
+			i.id, i.filename, i.original_name, i.path, i.size_bytes, i.mime_type, i.uploaded_by, i.created_at, i.updated_at
+		FROM client_reviews cr
+		LEFT JOIN images i ON cr.image_id = i.id
+		WHERE cr.is_active = true
+		ORDER BY cr.display_order ASC, cr.created_at DESC
+	`
+	
+	rows, err := q.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query active client reviews: %w", err)
+	}
+	defer rows.Close()
+	
+	var reviews []models.ClientReview
+	for rows.Next() {
+		var review models.ClientReview
+		var image models.Image
+		
+		err := rows.Scan(
+			&review.ID, &review.ClientName, &review.InstagramHandle, &review.ImageID, &review.DisplayOrder, &review.IsActive, &review.CreatedAt, &review.UpdatedAt,
+			&image.ID, &image.Filename, &image.OriginalName, &image.Path, &image.SizeBytes, &image.MimeType, &image.UploadedBy, &image.CreatedAt, &image.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan client review: %w", err)
+		}
+		
+		review.Image = &image
+		reviews = append(reviews, review)
+	}
+	
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate client reviews: %w", err)
+	}
+	
+	return reviews, nil
+}
+
+// GetClientReviewByID returns a single client review by ID
+func (q *ClientReviewQueries) GetClientReviewByID(id int) (*models.ClientReview, error) {
+	query := `
+		SELECT 
+			cr.id, cr.client_name, cr.instagram_handle, cr.image_id, cr.display_order, cr.is_active, cr.created_at, cr.updated_at,
+			i.id, i.filename, i.original_name, i.path, i.size_bytes, i.mime_type, i.uploaded_by, i.created_at, i.updated_at
+		FROM client_reviews cr
+		LEFT JOIN images i ON cr.image_id = i.id
+		WHERE cr.id = $1
+	`
+	
+	var review models.ClientReview
+	var image models.Image
+	
+	err := q.db.QueryRow(query, id).Scan(
+		&review.ID, &review.ClientName, &review.InstagramHandle, &review.ImageID, &review.DisplayOrder, &review.IsActive, &review.CreatedAt, &review.UpdatedAt,
+		&image.ID, &image.Filename, &image.OriginalName, &image.Path, &image.SizeBytes, &image.MimeType, &image.UploadedBy, &image.CreatedAt, &image.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("client review not found")
+		}
+		return nil, fmt.Errorf("failed to get client review: %w", err)
+	}
+	
+	review.Image = &image
+	return &review, nil
+}
+
+// CreateClientReview creates a new client review
+func (q *ClientReviewQueries) CreateClientReview(req models.CreateClientReviewRequest) (*models.ClientReview, error) {
+	query := `
+		INSERT INTO client_reviews (client_name, instagram_handle, image_id, display_order, is_active)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, created_at, updated_at
+	`
+	
+	var review models.ClientReview
+	err := q.db.QueryRow(query, req.ClientName, req.InstagramHandle, req.ImageID, req.DisplayOrder, req.IsActive).Scan(
+		&review.ID, &review.CreatedAt, &review.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create client review: %w", err)
+	}
+	
+	review.ClientName = req.ClientName
+	review.InstagramHandle = req.InstagramHandle
+	review.ImageID = req.ImageID
+	review.DisplayOrder = req.DisplayOrder
+	review.IsActive = req.IsActive
+	
+	return &review, nil
+}
+
+// UpdateClientReview updates an existing client review
+func (q *ClientReviewQueries) UpdateClientReview(id int, req models.UpdateClientReviewRequest) (*models.ClientReview, error) {
+	query := `
+		UPDATE client_reviews 
+		SET client_name = $2, instagram_handle = $3, image_id = $4, display_order = $5, is_active = $6, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1
+		RETURNING id, client_name, instagram_handle, image_id, display_order, is_active, created_at, updated_at
+	`
+	
+	var review models.ClientReview
+	err := q.db.QueryRow(query, id, req.ClientName, req.InstagramHandle, req.ImageID, req.DisplayOrder, req.IsActive).Scan(
+		&review.ID, &review.ClientName, &review.InstagramHandle, &review.ImageID, &review.DisplayOrder, &review.IsActive, &review.CreatedAt, &review.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("client review not found")
+		}
+		return nil, fmt.Errorf("failed to update client review: %w", err)
+	}
+	
+	return &review, nil
+}
+
+// DeleteClientReview deletes a client review by ID
+func (q *ClientReviewQueries) DeleteClientReview(id int) error {
+	query := `DELETE FROM client_reviews WHERE id = $1`
+	
+	result, err := q.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete client review: %w", err)
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rowsAffected == 0 {
+		return fmt.Errorf("client review not found")
+	}
+	
+	return nil
+}
+
+// ReorderClientReviews updates the display order of multiple client reviews
+func (q *ClientReviewQueries) ReorderClientReviews(orders []struct{ ID, DisplayOrder int }) error {
+	tx, err := q.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	
+	for _, order := range orders {
+		_, err = tx.Exec("UPDATE client_reviews SET display_order = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", order.DisplayOrder, order.ID)
+		if err != nil {
+			return fmt.Errorf("failed to update display order for review %d: %w", order.ID, err)
+		}
+	}
+	
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	
+	return nil
+}

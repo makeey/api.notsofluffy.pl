@@ -16,18 +16,20 @@ import (
 // PublicHandler handles public API requests
 type PublicHandler struct {
 	db              *sql.DB
-	categoryQueries *database.CategoryQueries
-	productQueries  *database.ProductQueries
-	settingsQueries *database.SettingsQueries
+	categoryQueries     *database.CategoryQueries
+	productQueries      *database.ProductQueries
+	settingsQueries     *database.SettingsQueries
+	clientReviewQueries *database.ClientReviewQueries
 }
 
 // NewPublicHandler creates a new public handler
 func NewPublicHandler(db *sql.DB) *PublicHandler {
 	return &PublicHandler{
-		db:              db,
-		categoryQueries: database.NewCategoryQueries(db),
-		productQueries:  database.NewProductQueries(db),
-		settingsQueries: database.NewSettingsQueries(db),
+		db:                  db,
+		categoryQueries:     database.NewCategoryQueries(db),
+		productQueries:      database.NewProductQueries(db),
+		settingsQueries:     database.NewSettingsQueries(db),
+		clientReviewQueries: database.NewClientReviewQueries(db),
 	}
 }
 
@@ -364,5 +366,18 @@ func (h *PublicHandler) GetMaintenanceStatus(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"maintenance_mode": isMaintenanceMode,
+	})
+}
+
+// GetActiveClientReviews returns all active client reviews for the homepage gallery
+func (h *PublicHandler) GetActiveClientReviews(c *gin.Context) {
+	reviews, err := h.clientReviewQueries.GetActiveClientReviews()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch client reviews"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"client_reviews": reviews,
 	})
 }
