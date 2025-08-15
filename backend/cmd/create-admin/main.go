@@ -67,8 +67,8 @@ func main() {
 		}
 
 		// Update existing user to admin
-		existingUser.Role = "admin"
-		if err := userQueries.UpdateUser(existingUser); err != nil {
+		_, err = userQueries.UpdateUser(existingUser.ID, existingUser.Email, existingUser.PasswordHash, "admin")
+		if err != nil {
 			log.Fatal("Failed to update user role:", err)
 		}
 		fmt.Printf("Successfully updated user %s to admin role.\n", email)

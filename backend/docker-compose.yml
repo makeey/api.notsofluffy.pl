@@ -1,0 +1,75 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: notsofluffy-backend:latest
+    container_name: notsofluffy-backend
+    restart: unless-stopped
+    network_mode: host
+
+    # Environment variables (override with .env file)
+    environment:
+      - PORT=8080
+      - GIN_MODE=release
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      - DEVELOPMENT=${DEVELOPMENT:-false}
+      - DB_SSL_MODE=${DB_SSL_MODE:-require}
+      - DB_SSL_CERT=${DB_SSL_CERT:-}
+      - DB_SSL_KEY=${DB_SSL_KEY:-}
+      - DB_SSL_ROOT_CERT=${DB_SSL_ROOT_CERT:-}
+      - DOMAIN=${DOMAIN:-localhost}
+      - ENABLE_HTTPS=${ENABLE_HTTPS:-false}
+
+    # Volume mounts
+    volumes:
+      - uploads_data:/app/uploads
+      # Optional: Mount SSL certificates if using database SSL with files
+      # - ./ssl/certs:/app/ssl/certs:ro
+
+    # Health check
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/api/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          memory: 1GB
+          cpus: "1"
+        reservations:
+          memory: 512MB
+          cpus: "0.5"
+
+# Named volumes for data persistence
+volumes:
+  uploads_data:
+    driver: local
+
+# Optional: Custom network
+networks:
+  default:
+    name: notsofluffy-network

@@ -1,0 +1,152 @@
+# Git and version control
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+DEPLOYMENT.md
+*.md
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+debug.log
+server.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Build artifacts (keep main binary if you want to include it)
+main
+server
+create-admin
+
+# Test files
+*_test.go
+testdata/
+coverage.out
+coverage.html
+
+# Development files
+docker-compose.override.yml
+docker-compose.dev.yml
+
+# SSL certificates (mount them as volumes instead)
+ssl/
+certs/
+*.pem
+*.crt
+*.key
+
+# Backup files
+*.bak
+*.backup
+
+# Node.js (if you have any frontend build tools)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Uploads directory (mount as volume)
+uploads/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache files
+.cache/
+*.cache
+
+# Vendor directory (already in image through go mod)
+vendor/
+
+# Go specific
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Air (if using for development)
+.air.toml
+tmp/
+
+# Docker files (but keep them in build context)
+# Dockerfile
+# docker-compose.yml
+
+# Kubernetes manifests
+*.yaml
+*.yml
+k8s/
+kubernetes/
+
+# Terraform
+*.tf
+*.tfstate
+*.tfstate.backup
+.terraform/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+circle.yml
+.circleci/
+
+# Misc
+.nyc_output
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json

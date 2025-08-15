@@ -1,15 +1,19 @@
 package main
 
 import (
+	"context"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"notsofluffy-backend/internal/config"
 	"notsofluffy-backend/internal/database"
 	"notsofluffy-backend/internal/handlers"
 	"notsofluffy-backend/internal/middleware"
 
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -36,13 +40,16 @@ func main() {
 	// Initialize session store
 	middleware.InitSessionStore(cfg.JWTSecret)
 
-	// CORS middleware
-	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", "http://localhost:3001"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		AllowCredentials: true,
-	}))
+	// Security and proxy middleware (must be first)
+	r.Use(middleware.TrustedProxyHeaders())
+	r.Use(middleware.SecurityHeaders())
+	r.Use(middleware.RequestLogger())
+
+	// Health check endpoint (before other middleware)
+	r.Use(middleware.HealthCheck("/health"))
+
+	// CORS middleware with proxy support
+	r.Use(middleware.CORSWithProxy(cfg.AllowedOrigins))
 
 	// Session middleware
 	r.Use(middleware.SessionMiddleware())
@@ -229,8 +236,64 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("Server starting on port %s", port)
-	if err := r.Run(":" + port); err != nil {
-		log.Fatal("Failed to start server:", err)
+	// Create HTTP server with proper timeouts
+	server := &http.Server{
+		Addr:           ":" + port,
+		Handler:        r,
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   30 * time.Second,
+		IdleTimeout:    120 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
+
+	// Configure trusted proxies for Gin
+	if err := r.SetTrustedProxies([]string{"127.0.0.1", "::1"}); err != nil {
+		log.Printf("Warning: Failed to set trusted proxies: %v", err)
+	}
+
+	// Log startup information
+	log.Printf("=== NotSoFluffy API Server ===")
+	log.Printf("Environment: %s", getEnv("ENVIRONMENT", "development"))
+	log.Printf("Port: %s", port)
+	log.Printf("Database SSL: %s", cfg.DBSSLMode)
+	log.Printf("Allowed Origins: %v", cfg.AllowedOrigins)
+	
+	// Log SSL database info if enabled
+	if cfg.DBSSLMode != "disable" {
+		sslInfo := database.GetSSLInfo(cfg.DatabaseURL)
+		log.Printf("Database SSL Info: %+v", sslInfo)
+	}
+
+	// Start server in a goroutine
+	go func() {
+		log.Printf("Server starting on port %s", port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal("Failed to start server:", err)
+		}
+	}()
+
+	// Wait for interrupt signal to gracefully shut down the server
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down server...")
+
+	// Create a context with timeout for graceful shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Attempt graceful shutdown
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("Server forced to shutdown: %v", err)
+	} else {
+		log.Println("Server exited gracefully")
+	}
+}
+
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }
